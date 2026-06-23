@@ -1,0 +1,27 @@
+# =============================================================================
+# Regime E — data-volume learning curve (this file = the 25% point).
+# Profile-stratified (per-profile cap balances the 564/474 vs 55 imbalance),
+# chi-stratified so sparse chi values survive the subsample. Sweep the curve by
+# duplicating this file with subsample_fraction in {0.10, 0.25, 0.50, 1.00};
+# everything else identical. Supervised-only -> a clean "how much sim data is
+# enough" curve, uncontaminated by a physics prior.
+# =============================================================================
+
+[regime]
+name = "E_lc25"
+description = "learning-curve point: 25% of profile-capped, chi-stratified groups"
+
+[data]
+include_profiles = []          # all profiles EXCEPT the excluded ones below
+# multisine excluded: its controller chatter (M_sw-dominated) risks teaching the
+# observer controller signatures rather than plant physics. Held out for a
+# separate chatter-robustness eval instead of mixed into training.
+exclude_profiles = ["multisine_50percent_cap", "multisine_75percent_cap"]
+per_profile_cap = 200          # balance the dominant profiles down toward the tail
+subsample_fraction = 0.25      # <-- the swept knob (0.10 / 0.25 / 0.50 / 1.00)
+chi_stratify = true
+
+[train]
+window = 32
+phases = "a1_5phase"          # same 5-phase schedule; physics off -> supervised
+physics_loss = false

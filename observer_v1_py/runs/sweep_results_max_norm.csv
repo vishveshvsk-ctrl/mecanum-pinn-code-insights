@@ -1,0 +1,9 @@
+label,pkg,status,rc,wall_min,run_dir,val_loss,epochs,model,window,stride,regime,chi_fold_test,physics_loss,norm_method,params
+S1_train_w8_non_phys_max_norm,observer_v1_py,skipped,0,,observer_v1_py/runs/S1_train_w8_non_phys_max_norm,0.005818604024225902,100,ssm,8,4,S1_train,-1.0,False,max,6277
+S1_train_w16_non_phys_max_norm,observer_v1_py,skipped,0,,observer_v1_py/runs/S1_train_w16_non_phys_max_norm,0.005859706092994216,100,ssm,16,8,S1_train,-1.0,False,max,6277
+S1_train_w32_non_phys_max_norm,observer_v1_py,skipped,0,,observer_v1_py/runs/S1_train_w32_non_phys_max_norm,0.005444761092907616,100,ssm,32,16,S1_train,-1.0,False,max,6277
+S1_train_w64_non_phys_max_norm,observer_v1_py,ok,0,607.24,observer_v1_py/runs/S1_train_w64_non_phys_max_norm,0.0072396711789463695,100,ssm,64,32,S1_train,-1.0,False,max,6277
+S2_train_w8_non_phys_max_norm,observer_v1_py,skipped,0,,observer_v1_py/runs/S2_train_w8_non_phys_max_norm,0.007195987967089891,100,ssm,8,4,S2_train,-1.0,False,max,6277
+S2_train_w16_non_phys_max_norm,observer_v1_py,skipped,0,,observer_v1_py/runs/S2_train_w16_non_phys_max_norm,0.006282326483876625,100,ssm,16,8,S2_train,-1.0,False,max,6277
+S2_train_w32_non_phys_max_norm,observer_v1_py,skipped,0,,observer_v1_py/runs/S2_train_w32_non_phys_max_norm,0.006087164866871067,100,ssm,32,16,S2_train,-1.0,False,max,6277
+S2_train_w64_non_phys_max_norm,observer_v1_py,ok,0,195.59,observer_v1_py/runs/S2_train_w64_non_phys_max_norm,0.006905127819137354,100,ssm,64,32,S2_train,-1.0,False,max,6277

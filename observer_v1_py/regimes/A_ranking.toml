@@ -1,0 +1,24 @@
+# =============================================================================
+# Regime A — pooled observability ranking (the headline metric).
+# Supervised-only (clean "what's recoverable from data" measure). multisine is
+# EXCLUDED: its M_sw-dominated controller chatter risks the observer learning
+# controller rather than plant characteristics — held out as a separate
+# chatter-robustness eval. Per-profile cap balances the 564/474-vs-tail skew;
+# chi mixed and stratified. Window ablation (8 vs 32) is run on THIS regime.
+# =============================================================================
+
+[regime]
+name = "A_ranking"
+description = "pooled ranking, multisine excluded, chi-mixed, profile-capped"
+
+[data]
+include_profiles = []          # all profiles except the excluded ones
+exclude_profiles = ["multisine_50percent_cap", "multisine_75percent_cap"]
+chi = [0.0, 0.002, 0.005, 0.008]
+per_profile_cap = 200
+chi_stratify = true
+
+[train]
+window = 32                    # also run with --window 8 for the ablation
+phases = "a1_5phase"
+physics_loss = false           # ranking stays supervised (uncontaminated metric)

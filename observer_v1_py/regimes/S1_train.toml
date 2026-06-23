@@ -1,0 +1,41 @@
+# =============================================================================
+# Excitation-coverage 2-fold, direction 1: TRAIN on S1, cross-test on S2.
+#   train = S1 (0.9), val = S1 (0.1, same-subset generalization signal)
+#   test  = S2        (cross-subset transfer)
+# Run S2_train.toml for the reverse direction. chi fixed at 0.005, all mu.
+# multisine excluded (held-out chatter eval). Supervised-only so the cross-subset
+# number is a clean data-generalization measure (add physics later if desired).
+#
+# Fold construction (see mecanum_observer.data.assign_folds):
+#   backbone {octagon, spin_creep, coupled_vomega}: stratified 50/50 by excitation
+#     mode -> both folds excitation-complete (all 21 plausible cells).
+#   redundant: long_circle + spiral_orbit -> S1; ellipse -> S2 (coverage-neutral).
+# =============================================================================
+
+[regime]
+name = "S1_train"
+description = "train on excitation-fold S1, cross-test on S2"
+
+[data]
+mu = [0.3, 0.5, 0.8]
+chi = [0.005]
+exclude_profiles = ["multisine_50percent_cap", "multisine_75percent_cap"]
+
+[split]
+val_frac = 0.1          # within-fold same-subset validation
+
+[fold]
+train_fold = "S1"
+backbone = ["octagon", "spin_creep", "coupled_vomega"]
+redundant_S1 = ["long_circle", "spiral_orbit"]
+redundant_S2 = ["ellipse"]
+profiles_toml_dir = "trajectory_files_run_0p5_main/profiles"
+# downsample the over-represented S1 redundants to 1/4 so fold sizes ~match the
+# ellipse-sized S2 redundant (coverage-neutral, so the random skew is benign).
+redundant_sample_frac = 0.25
+redundant_sample_profiles = ["long_circle", "spiral_orbit"]
+
+[train]
+window = 32
+phases = "a1_5phase"
+physics_loss = false

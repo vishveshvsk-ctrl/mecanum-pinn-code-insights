@@ -1,0 +1,934 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
+            urlcolor=blue!50!black}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\theoremstyle{definition}
+\newtheorem{assumption}{Assumption}
+\newtheorem{remark}{Remark}
+
+\newcommand{\Vx}{V_x}
+\newcommand{\Vy}{V_y}
+\newcommand{\Maug}{M_{\mathrm{aug}}}
+\newcommand{\Deff}{D^{\mathrm{eff}}}
+\newcommand{\Dwr}{D^{\mathrm{wr}}}
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\Kmax}{K_{\max}}
+\newcommand{\Tr}[1]{\tanh\!\left(#1\right)}
+
+\title{\bfseries Velocity-Tracking Adaptive Sliding-Mode Controller:\\
+Stability, Disturbance Headroom, and Initial-Gain Sizing\\
+in the Julia Mecanum Simulator}
+\author{\normalsize Mecanum\_MultiComponentFriction\_SlipSpin\_Roller\_ASMC\_3 (Julia)\\
+\normalsize Mecanum-PINN v12.5 design note --- companion to the position-tracking analysis}
+\date{June 9, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note analyses the \emph{velocity-tracking} controller \texttt{asmc\_torques\_vel}
+as the inner loop of a cascade, fed by an outer world-frame position/heading loop, and
+uses the analysis to size the warm-start initial gains $K_{i0}$ that the velocity gain
+law leaks toward. A first draft of this note treated the inner loop in isolation and
+implicitly assumed body-frame velocity tracking alone certifies the world-frame
+trajectory --- it does not. As written, \texttt{asmc\_torques\_vel} chases body-frame
+setpoints that are open-loop in time; if the yaw rate tracks low, the heading error
+$\Delta\psi$ accumulates, the body axes point the wrong way in the world, and the
+world velocity $R(\psi)(\Vx,\Vy)^\top$ drifts even with all three body surfaces pinned
+at zero. \S\ref{sec:frame} makes this failure explicit and shows why the cascade
+resolves it: the outer loop measures world position/heading, sees the drift, and
+re-commands the inner setpoints. The inner-loop relative-degree-one UUB proof
+(\S\S\ref{sec:plant}--\ref{sec:uub}) is unchanged --- the surface dynamics collapse to
+$\dot s_i=-\tilde K_i\Tr{s_i/\varepsilon_i}+\tilde d_i$ directly --- but the cascade
+adds two inner-loop disturbance terms: a setpoint-rate term and a heading-rotation
+(``circle'') term $\propto\dot\psi\,k_p\,e_{\mathrm{pos}}$, both quantified in
+\S\ref{sec:cascade}. The heading correction acts on the \emph{shaped} error
+$e_\psi(d_\psi)$ of the position controller \texttt{asmc\_torques}, not the raw
+residual; \S\ref{sec:impl} gives the exact edits to \texttt{asmc\_torques\_vel}.
+For deployment and run-time-matched PINN data, \S\ref{sec:mixed} develops the preferred
+\emph{mixed relative-degree} variant --- degree-1 velocity surfaces on $(x,y)$, a
+degree-2 position-type surface $s_\psi=\dot e_\psi+\lambda_\psi e_\psi$ on yaw --- which
+bounds the heading error inside a single ASMC (no outer loop, no separation caveat) and
+flags a $\sim38\,\dot\psi\,$N\,m yaw viscous term the present velocity controller omits. Timescale separation is comfortable: the inner loop runs at
+$25$--$170\,$rad/s, leaving a $5\times$-slower outer loop at $\le5\,$rad/s
+(translation) and $\le34\,$rad/s (yaw). Three numerical facts carry over: the
+equivalent control inverts the \emph{augmented} $\Maug$ (cross-coupling
+${\sim}13.4\%$, down from ${\sim}17.7\%$); the smaller velocity caps
+$\Kmax=(60,80,100)\,$N\,m make actuator saturation the binding (B1) constraint at the
+simultaneous-cap worst case; and the sign-indefinite leak-to-$K_0$ term is benign,
+pinning the relaxed gain at $0.95K_{i0}$. The sizing rule
+$K_{i0}\gtrsim\Dwr_{i,\mathrm{op}}/\tanh1$ now includes the cascade terms in
+$\Dwr_{i,\mathrm{op}}$. All numerical values are verified against the exact platform
+parameters in the notebook.
+\end{abstract}
+
+\tableofcontents
+
+\section{What changes relative to the position controller}
+\label{sec:changes}
+
+The companion note analysed \texttt{asmc\_torques}, in which the sliding surface is
+the standard first-order surface $s_i=\dot e_i+\lambda_i(e_i)\,e_i$ built on the
+\emph{position} error, with a dynamic Gaussian $\lambda_i(e_i)$ and an
+equivalent control that cancels the $\dot\lambda$ feedforward. The velocity
+controller \texttt{asmc\_torques\_vel} is structurally simpler, and the
+simplifications all act in the direction of a \emph{cleaner} proof:
+
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Relative degree one; no $\lambda$.} The surface is the body-frame
+velocity error directly,
+\begin{equation}
+s_x=\Vx-\Vx^{d}, \qquad s_y=\Vy-\Vy^{d}, \qquad s_\psi=\dot\psi-\omega^{d},
+\label{eq:surface}
+\end{equation}
+read off lines \texttt{s\_x = Vx - Vx\_d}, etc. There is no $\dot e+\lambda e$
+construction, no dynamic-$\lambda$ Gaussian, and no $\dot\lambda$ term inside the
+equivalent control. The whole of \S12 of the position note (``why the dynamic
+$\lambda$ does not break the argument'') is vacuous here, and the
+$\lambda$-cancellation that produced the clean $\dot s$ in the position note is
+unnecessary --- the cancellation is automatic.
+
+\item \textbf{Equivalent control is pure acceleration feedforward.} The set-points are
+the body-frame desired accelerations directly,
+$A_{x,\mathrm{eq}}=A_x^{d}$, $A_{y,\mathrm{eq}}=A_y^{d}$,
+$\alpha_{\mathrm{eq}}=\alpha^{d}$, from \texttt{get\_Axb\_des}, \texttt{get\_Ayb\_des},
+\texttt{get\_alpha\_des\_v}. There are \emph{no} error-transport terms
+($-\lambda\dot e$, $-\dot\lambda e$) and no desired-velocity Coriolis correction
+applied to the surface --- the Coriolis, viscous, and centripetal wrench terms in
+$M_{x,\mathrm{eq}},M_{y,\mathrm{eq}},M_{\psi,\mathrm{eq}}$ are otherwise identical
+to the position controller.
+
+\item \textbf{The equivalent control inverts the augmented mass matrix.} The
+inverse-dynamics wrench uses $\tilde m=m_s+4J_1/R^2$ and
+$I_{\psi,\mathrm{aug}}=I_s+4(l+h)^2 J_1/R^2$ (wheel rotational inertia reflected to
+the body), i.e. it inverts
+\begin{equation}
+\Maug=\begin{pmatrix}
+\tilde m & 0 & -m a_Y\\
+0 & \tilde m & m a_X\\
+-m a_Y & m a_X & I_{\psi,\mathrm{aug}}
+\end{pmatrix},
+\label{eq:Maug}
+\end{equation}
+not the bare platform matrix $M$ of the position note. This is the matrix that
+appears in \texttt{M\_aug} and in the MIMO-DOB compensation
+$\Delta M_c=-\operatorname{diag}(R,R,1)\,\Maug\,\hat\delta$.
+
+\item \textbf{A third gain-law term.} The velocity gain law is
+\begin{equation}
+\dot K_i=\underbrace{\gamma_i\,\sigma_i\,b(K_i)}_{\text{growth}}
+-\underbrace{c_i\!\left(\tfrac{K_i}{K_{\max,i}}\right)^{\!3}}_{\text{cubic pushback}}
+-\underbrace{\sigma^{\!*}_i\,(K_i-0.95\,K_{i0})\,
+e^{\,\kappa\left(1-s_i^2/(9\varepsilon_\psi^2)\right)}}_{\text{leak toward }K_{i0}},
+\label{eq:gainlaw}
+\end{equation}
+with $\sigma_i\equiv s_i\Tr{s_i/\varepsilon_i}\ge0$, smooth gate
+$b(K)=\tfrac12-\tfrac12\Tr{K-(K_{\max}-2)}$, and the velocity configuration
+($\sigma^{\!*}$ written for the leak coefficient to avoid clash with $\sigma_i$)
+\begin{align*}
+&\gamma=(8,\,15,\,25),\quad c=(0.1,\,0.3,\,0.5),\quad
+K_{\max}=(60,\,80,\,100)\ \text{N\,m},\\
+&\sigma^{\!*}=(0.5,\,0.25,\,0.25),\quad \kappa=0.25,\quad
+K_{0}=(5,\,5,\,20)\ \text{N\,m},\quad
+\varepsilon=0.05,\ \varepsilon_\psi=0.08.
+\end{align*}
+The leak term is new relative to the position note (which had only growth $+$ cubic).
+It is sign-indefinite in $K_i-0.95K_{i0}$; we carry it through $\dot V$ in full in
+\S\ref{sec:lyap}. Its fixed point is exactly the warm-start anchor $0.95\,K_{i0}$,
+so sizing $K_{i0}$ is the practical content of this note.
+\end{enumerate}
+
+\section{What body-frame velocity tracking does \emph{not} certify}
+\label{sec:frame}
+
+The UUB result proven below bounds the three body-frame surfaces $s_x,s_y,s_\psi$.
+It is tempting --- and a first draft of this note did exactly this --- to read that as
+``the platform follows the intended trajectory.'' It does not. Two distinct gaps
+must be separated.
+
+\paragraph{Gap 1 (benign): static pose offset.} If the body-frame velocity is tracked
+with a bounded but nonzero heading offset $\Delta\psi$, the world velocity is
+$\dot r^{\mathrm{world}}=R(\psi)(\Vx,\Vy)^\top=R(\psi_{\mathrm{int}}-\Delta\psi)(\Vx,\Vy)^\top$,
+a \emph{rotation} of the intended world velocity. The realised path is rotated, and
+possibly translated, relative to the plan. For PINN training this is irrelevant: the
+network is fed body-frame states $(\Vx,\Vy,\dot\psi,\omega_i)$ and forces, never world
+position, so a rotated/translated trajectory is the same training datum. A bounded
+$\Delta\psi$ is acceptable by design.
+
+\paragraph{Gap 2 (the real problem): \emph{growing} heading error changes the
+trajectory class.} The damaging case is a $\Delta\psi$ that \emph{grows with time}. A
+circle authored as a constant body velocity $(\Vx^d,\Vy^d)=(v,0)$ with
+$\omega^d=v/\rho$ becomes, under accumulating heading error, a spiral --- a
+qualitatively different trajectory with different excitation content. This is the
+concern that matters, and it lives entirely in the yaw channel.
+
+\subsection{The heading error is the time-integral of the yaw surface}
+The heading is the open-loop integral of yaw rate, and the intended heading is the
+integral of the commanded yaw rate, so
+\begin{equation}
+\Delta\psi(t)\equiv\psi(t)-\psi_{\mathrm{int}}(t)
+=\int_0^t\big(\dot\psi-\omega^d\big)\,d\tau=\int_0^t s_\psi(\tau)\,d\tau.
+\label{eq:dpsi_integral}
+\end{equation}
+This is the crux: \textbf{heading error is the integral of the yaw sliding variable.}
+UUB bounds $|s_\psi|\le\bar s_\psi$, but says nothing about
+$\int s_\psi\,d\tau$. The worst-case bound is
+\begin{equation}
+|\Delta\psi(t)|\le\int_0^t|s_\psi|\,d\tau\le\bar s_\psi\,t,
+\label{eq:dpsi_linear}
+\end{equation}
+which grows linearly. Whether $\Delta\psi$ actually drifts depends on the
+\emph{mean} of the steady-state yaw residual:
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{Zero-mean $s_\psi$} (symmetric chatter about zero): the integral stays
+bounded; $\Delta\psi$ wanders but does not secularly grow. Acceptable.
+\item \textbf{Biased $s_\psi$} ($\langle s_\psi\rangle=\delta\neq0$): then
+$\Delta\psi(t)\approx\delta\,t$ --- secular drift, circle $\to$ spiral. Not acceptable.
+\end{itemize}
+
+\subsection{What biases $\tilde d_\psi$, and hence $s_\psi$}
+Inside the boundary layer the yaw surface settles at
+\begin{equation}
+s_\psi^{\mathrm{ss}}\approx\frac{\varepsilon_\psi\,\Dwr_\psi}{K_\psi},
+\label{eq:spsi_ss}
+\end{equation}
+(the $\beta_\psi$ cancels through $\Deff_\psi=\beta_\psi\Dwr_\psi$, exactly as in
+\eqref{eq:ss}). A \emph{constant} component of the yaw disturbance $\Dwr_\psi$
+therefore produces a \emph{constant} $s_\psi^{\mathrm{ss}}$, which integrates into
+linear heading drift. The yaw disturbance is generically \emph{not} zero-mean:
+\begin{itemize}[leftmargin=1.5em]
+\item the multicomponent spin torque $M_{zi}\propto\chi^2$ does not average to zero
+over a sustained turn (the roller spin has a fixed sign while turning);
+\item roller-handoff transients in $\tilde\varphi_i$ are phase-locked to wheel angle,
+not symmetric in time;
+\item most importantly, the DOB-onset \emph{structural asymmetry} already documented
+(translation compensation gain ${\sim}2.25\times$ versus yaw lever
+$L_\psi\approx0.13$) is a standing, signed offset on precisely this channel --- the
+canonical DC bias source.
+\end{itemize}
+
+\subsection{Quantifying the open-loop drift}
+With the operating yaw gain $K_\psi^{\mathrm{eq}}\approx79.4\,$N\,m (cubic balance,
+\S\ref{sec:headroom}), $\varepsilon_\psi=0.08$, a representative biased yaw
+disturbance gives the following linear drift rates:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Biased $\Dwr_\psi$ (N\,m) & 0.5 & 1.0 & 2.0\\
+\midrule
+$s_\psi^{\mathrm{ss}}$ (mrad/s) & 0.50 & 1.01 & 2.02\\
+Heading drift over $30\,$s (deg) & 0.87 & 1.73 & 3.47\\
+Heading error per circle lap (deg, $v{=}0.3$, $\rho{=}2$, $T{=}41.9\,$s) & 1.21 & 2.42 & 4.84\\
+\bottomrule
+\end{tabular}
+\end{center}
+The per-lap figure is the telling one: the error \emph{accumulates each lap}, so a
+nominally closed circle opens into a spiral at $2$--$5^\circ$ per revolution. This is
+exactly the failure mode of concern, and it is invisible to the inner-loop UUB
+certificate.
+
+\subsection{The cascade closes the integral, using the shaped heading error}
+\label{sec:cascade}
+The fix is to feed the inner yaw-rate setpoint from an outer heading loop that
+\emph{measures} $\psi$ (which the simulator state carries at \texttt{state[4]}). To stay
+consistent with the position controller \texttt{asmc\_torques}, the correction acts on
+the \emph{shaped} heading error used there, not on the raw residual. With
+$d_\psi\equiv\psi-\psi_d$, define
+\begin{equation}
+e_\psi(d_\psi)=2\tan\!\tfrac{d_\psi}{2}\,\big(1+2(1-\cos d_\psi)\big),
+\qquad
+e_\psi'(d_\psi)=\sec^2\!\tfrac{d_\psi}{2}\,(3-2\cos d_\psi)+4\tan\!\tfrac{d_\psi}{2}\sin d_\psi,
+\label{eq:epsi}
+\end{equation}
+exactly the \texttt{e\_psi} and \texttt{edash\_psi} of the position controller. The
+outer law is
+\begin{equation}
+\omega^d=\dot\psi_d+k_{p,\psi}\,e_\psi(d_\psi),
+\qquad(\text{so } \omega^d>\dot\psi_d \text{ when } \psi \text{ leads } \psi_d).
+\label{eq:outer}
+\end{equation}
+Three properties of \eqref{eq:epsi}, all verified numerically on $(-\pi,\pi)$, make this
+a valid and well-behaved error coordinate:
+\begin{enumerate}[leftmargin=2em]
+\item \emph{Sign-faithful:} $\operatorname{sign}e_\psi(d_\psi)=\operatorname{sign}d_\psi$,
+so the correction always pushes $\psi$ toward $\psi_d$.
+\item \emph{Strictly monotone:} $e_\psi'(d_\psi)\ge e_\psi'(0)=1>0$ everywhere on the
+domain, so there is no spurious equilibrium and the closed-loop pole never vanishes.
+\item \emph{Identity at small angle:} $e_\psi(d_\psi)=d_\psi+O(d_\psi^3)$ with slope
+exactly $1$ at the origin; the shaping only steepens at large excursions
+($e_\psi/d_\psi\approx1.01$ at $0.1\,$rad, $\approx1.10$ at $0.3\,$rad), adding authority
+where the heading is far off without altering the near-zero behaviour that sets the
+steady-state drift.
+\end{enumerate}
+Differentiating \eqref{eq:dpsi_integral} (i.e. $\dot d_\psi=\dot\psi-\dot\psi_d$) and
+substituting \eqref{eq:outer},
+\begin{equation}
+\dot d_\psi=\dot\psi-\omega^d
+=\underbrace{(\dot\psi-\dot\psi_d)}_{\text{inner residual }s_\psi^{\mathrm{in}}}
+-k_{p,\psi}\,e_\psi(d_\psi).
+\label{eq:dpsi_closed}
+\end{equation}
+The accumulating integrator \eqref{eq:dpsi_integral} is replaced by a \emph{stable
+nonlinear first-order} system. Linearising about the equilibrium $d_\psi^{\mathrm{ss}}$
+gives the pole $-k_{p,\psi}\,e_\psi'(d_\psi^{\mathrm{ss}})$; since $e_\psi'\ge1$, the
+shaped error is \emph{never slower} than a raw-error design and is up to ${\sim}30\%$
+faster at large offsets. A biased inner residual no longer integrates without bound; it
+settles where $k_{p,\psi}e_\psi(d_\psi^{\mathrm{ss}})=\langle s_\psi^{\mathrm{in}}\rangle$,
+i.e.
+\begin{equation}
+e_\psi(d_\psi^{\mathrm{ss}})=\frac{\langle s_\psi^{\mathrm{in}}\rangle}{k_{p,\psi}}
+=\frac{\varepsilon_\psi\,\Dwr_\psi}{k_{p,\psi}\,K_\psi}
+\;\;\Longrightarrow\;\;
+|d_\psi^{\mathrm{ss}}|\approx\frac{\varepsilon_\psi\,\Dwr_\psi}{k_{p,\psi}\,K_\psi}
+\label{eq:dpsi_bound}
+\end{equation}
+where the final approximation uses $e_\psi\approx d_\psi$ at the small settled angle. The
+resulting bounded heading offsets:
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+& $\Dwr_\psi=1.0$ & $\Dwr_\psi=2.0$\\
+\midrule
+$|d_\psi^{\mathrm{ss}}|$ at $k_{p,\psi}=2$ (deg) & 0.029 & 0.058\\
+$|d_\psi^{\mathrm{ss}}|$ at $k_{p,\psi}=5$ (deg) & 0.012 & 0.023\\
+$|d_\psi^{\mathrm{ss}}|$ at $k_{p,\psi}=10$ (deg) & 0.006 & 0.012\\
+\bottomrule
+\end{tabular}
+\end{center}
+The drift is now a fixed sub-tenth-of-a-degree offset (Gap 1, benign), not a secular
+growth (Gap 2); the exact-$e_\psi$ form gives essentially the same steady bound as a raw
+correction because $d_\psi^{\mathrm{ss}}$ is tiny, but inherits the position
+controller's superior large-angle recovery. Optionally, the inner equivalent control can
+cancel the rate of the correction, $\dot\omega^d=\ddot\psi_d+k_{p,\psi}e_\psi'(d_\psi)
+\dot d_\psi$, by setting $\alpha_{\mathrm{eq}}=\alpha_{\mathrm{ff}}-k_{p,\psi}
+e_\psi'(d_\psi)\,s_\psi$ (using $\dot d_\psi\approx s_\psi$); without it the un-cancelled
+rate is the small setpoint-rate disturbance quantified below. The same construction
+applies to the translational channels if world position must be bounded ---
+$(\Vx^d,\Vy^d)\leftarrow R(\psi)^\top(\dot r_d^{\mathrm{world}}+K_p
+e_{\mathrm{pos}}^{\mathrm{world}})$ --- but per the stated training use only the heading
+channel needs closing; a bounded translational offset is acceptable.
+
+\subsection{Timescale separation and the cost to the inner loop}
+The cascade is valid only if the outer loop is slower than the inner. The inner
+boundary-layer linearisation $\dot s_i\approx-(\beta_iK_i/\varepsilon_i)s_i$ gives
+inner bandwidths
+\begin{equation}
+\omega^{\mathrm{in}}_i=\frac{\beta_iK_i^{\mathrm{eq}}}{\varepsilon_i}
+\approx(24.8,\,28.2,\,171.3)\ \text{rad/s},
+\end{equation}
+so a $5\times$ separation permits outer gains up to
+$\omega^{\mathrm{in}}_i/5\approx(5.0,\,5.6,\,34.3)\,$rad/s --- the yaw loop in
+particular can be made fast. The cascade does add two terms to the inner-loop
+disturbance, both small:
+\begin{enumerate}[leftmargin=2em]
+\item \emph{Setpoint-rate term.} The outer correction makes $\omega^d$ time-varying;
+if the inner feedforward $\alpha_{\mathrm{eq}}$ does not include
+$\dot\omega^d=k_{p,\psi}\,e_\psi'(d_\psi)\,\dot d_\psi$, the un-cancelled rate leaks into
+$\tilde d_\psi$. Bounded by $k_{p,\psi}\,e_\psi'(d_\psi)\,\bar s_\psi$, i.e.\ a few
+percent of the existing budget at the separations above (the $e_\psi'\to1$ near steady
+state, so this is the same order as the raw-error estimate).
+\item \emph{Heading-rotation (``circle'') term.} For the translational channels, if
+closed, the rotation $R(\psi)^\top$ applied to a world correction injects a body-frame
+setpoint rate $\dot\psi\,k_p\,e_{\mathrm{pos}}$; at $\dot\psi=0.3\,$rad/s,
+$k_p=1$, $e_{\mathrm{pos}}=0.1\,$m this is $0.03\,$m/s$^2$, i.e.\ ${\sim}1.35\,$N\,m of
+wrench --- negligible against the $\sim$45--76\,N\,m headroom.
+\end{enumerate}
+Both are folded into $\Dwr_{i,\mathrm{op}}$ for the $K_{i0}$ sizing of
+\S\ref{sec:K0}; neither threatens the (B1) margin.
+
+\subsection{Implementation in \texttt{asmc\_torques\_vel}}
+\label{sec:impl}
+The cascade requires three local edits to \texttt{asmc\_torques\_vel} and one new field
+on \texttt{ASMCParams}; the inner relative-degree-one structure is untouched.
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Unpack the heading.} Add $\psi=\texttt{state[4]}$ to the state unpack
+(currently only \texttt{state[1:3,17:19]} are read).
+\item \textbf{Corrected yaw-rate setpoint.} Replace the open-loop $\omega_d$ with the
+shaped-error cascade \eqref{eq:outer}: with $\omega_{\mathrm{ff}}=
+\texttt{get\_omega\_des\_v(t)}$, $\psi_d=\texttt{get\_psi\_des(t)}$,
+$d_\psi=\psi-\psi_d$, $e_\psi$ from \eqref{eq:epsi},
+\[
+\omega_d=\omega_{\mathrm{ff}}+\texttt{asmc.kp\_psi}\cdot e_\psi(d_\psi),
+\qquad s_\psi=\dot\psi-\omega_d .
+\]
+\item \textbf{(Optional) feed-forward the correction rate.} Replace
+$\alpha_{\mathrm{eq}}=\texttt{get\_alpha\_des\_v(t)}$ with
+$\alpha_{\mathrm{eq}}=\alpha_{\mathrm{ff}}-\texttt{asmc.kp\_psi}\cdot
+e_\psi'(d_\psi)\,s_\psi$, using $e_\psi'$ from \eqref{eq:epsi}. This cancels the
+setpoint-rate disturbance; omitting it leaves the small leak of item~1 above.
+\end{enumerate}
+The new parameter is a single field \texttt{kp\_psi::Float64 = 5.0} (rad/s) on
+\texttt{ASMCParams}. The choice $k_{p,\psi}=5$ sits at $\sim\!\omega^{\mathrm{in}}_\psi/34$,
+far inside the $5\times$ separation margin, and yields $|d_\psi^{\mathrm{ss}}|\lesssim
+0.02^\circ$. Two consistency requirements on the reference, both satisfied by the
+existing symbolic construction ($\psi_{\mathrm{sym}}=\pi/2+\psi_{\mathrm{silu}}$,
+$\omega_{\mathrm{sym}}=\dot\psi_{\mathrm{sym}}$): (i) \texttt{get\_psi\_des} must be the
+exact integral of the yaw-rate feedforward that \texttt{get\_omega\_des\_v} returns, or
+the correction fights the feedforward; (ii) at $t=0$, $\psi(0)=\psi_d(0)$ makes
+$e_\psi(0)=0$, so the correction is inert at start and adds no startup transient.
+
+\section{Plant on the sliding manifold and the canonical form}
+\label{sec:plant}
+
+With $v=(\Vx,\Vy,\dot\psi)^\top$, the body-frame dynamics actually used by the
+velocity controller read
+\begin{equation}
+\Maug\,\dot v=\tau_{\mathrm{task}}+\mathcal{F}_{\mathrm{fric}}(\chi,\mu,v,\omega,\theta)
++\mathcal{C}(v),
+\label{eq:plant}
+\end{equation}
+where $\tau_{\mathrm{task}}=(M_x^{\mathrm{cmd}},M_y^{\mathrm{cmd}},
+M_\psi^{\mathrm{cmd}})^\top$ is the wrench delivered after the wheel-map and
+$\tanh$ saturation, and $\mathcal{F}_{\mathrm{fric}}$ collects the multicomponent
+LuGre/Adamov forces and spin torques. Because the equivalent control is precisely
+$\Maug A_{\mathrm{eq}}-\mathcal{C}(v)-\mathcal{F}^{\mathrm{model}}_{\mathrm{fric}}$,
+the closed loop on the nominal model is
+\begin{equation}
+\dot v=A_{\mathrm{eq}}+\Maug^{-1}\tau_{\mathrm{sw}}+\Maug^{-1}d(t),
+\label{eq:closed}
+\end{equation}
+where $d(t)$ lumps friction-model mismatch (the $\chi$-dependent spin torque
+$M_{zi}$ in particular), parametric error in $(m_s,I_s,J_1,p_1,p_2,a_X,a_Y)$,
+actuator-saturation residual, roller-handoff transients, and any state-estimation
+error if run open-loop on a PINN.
+
+Differentiating the surface \eqref{eq:surface} and substituting
+\eqref{eq:closed}, with $A_{\mathrm{eq}}=\dot v^{d}$ (the desired body acceleration),
+\begin{equation}
+\dot s_i=[\dot v]_i-[\dot v^{d}]_i
+=[\Maug^{-1}\tau_{\mathrm{sw}}]_i+[\Maug^{-1}d]_i .
+\label{eq:sdot}
+\end{equation}
+There is no pairwise $\lambda$-cancellation to perform: relative degree one means the
+feedforward $A_{\mathrm{eq}}=\dot v^{d}$ cancels the desired-acceleration term
+exactly, and \eqref{eq:sdot} is immediate. This is the structural payoff of velocity
+tracking --- the same canonical $\dot s$ the position note had to \emph{engineer}
+via $\dot\lambda$ inside $A_{i,\mathrm{eq}}$ falls out for free.
+
+\begin{remark}[Channel coupling through $\Maug^{-1}$; the velocity numbers]
+\label{rem:coupling}
+With the exact notebook parameters ($h=0.235$, $l=0.15$, $R=0.05$, $R_d=0.0355$,
+$m=30$, $m_w=1.4$, $J_1=5.87\times10^{-3}$, $m_s=35.6$, $I_s=4.42$, so
+$\tilde m=44.99$, $I_{\psi,\mathrm{aug}}=5.812$, $m a_X=0.48$, $-m a_Y=0.78$):
+\begin{equation}
+\Maug=\begin{pmatrix}44.992&0&0.780\\0&44.992&0.480\\0.780&0.480&5.812\end{pmatrix},
+\quad
+\Maug^{-1}\!\approx\!\begin{pmatrix}
+2.228\!\times\!10^{-2}&3.19\!\times\!10^{-5}&-2.992\!\times\!10^{-3}\\
+3.19\!\times\!10^{-5}&2.225\!\times\!10^{-2}&-1.841\!\times\!10^{-3}\\
+-2.992\!\times\!10^{-3}&-1.841\!\times\!10^{-3}&1.726\!\times\!10^{-1}
+\end{pmatrix}.
+\end{equation}
+The smallest eigenvalue of $\Maug$ is $\approx5.79>0$, so $\Maug$ is symmetric
+positive definite and the diagonal projection coefficients
+$\beta_i\le[\Maug^{-1}]_{ii}$ are bounded away from zero. As fractions of the
+diagonal,
+\[
+\frac{\sum_{j\neq x}|[\Maug^{-1}]_{xj}|}{[\Maug^{-1}]_{xx}}\approx13.6\%,\quad
+\frac{\sum_{j\neq y}|[\Maug^{-1}]_{yj}|}{[\Maug^{-1}]_{yy}}\approx8.4\%,\quad
+\frac{\sum_{j\neq\psi}|[\Maug^{-1}]_{\psi j}|}{[\Maug^{-1}]_{\psi\psi}}\approx2.8\%.
+\]
+The worst coupling is again $x\!\leftrightarrow\!\psi$, but at $13.4\%$ it is
+\emph{lower} than the position note's $17.7\%$: reflecting the wheel inertia into the
+body inflates the diagonal $\tilde m$ and $I_{\psi,\mathrm{aug}}$ faster than the
+off-diagonals $m a_X,m a_Y$ (which are unchanged), shrinking the relative coupling.
+The two devices of the position note carry over verbatim:
+\begin{itemize}[leftmargin=1.5em]
+\item \emph{Device 1.} Absorb cross-axis switching into the disturbance. Since
+$|\Tr{s_j/\varepsilon_j}|\le1$ and the gate keeps $K_j\le\Kmax+O(c/\gamma)$,
+\begin{equation}
+\Deff_i=\Dwr_i\!\cdot\!\beta_i+\sum_{j\neq i}|[\Maug^{-1}]_{ij}|\,K_{\max,j},
+\label{eq:Deff}
+\end{equation}
+where $\Dwr_i$ is the genuine model-mismatch in wrench units.
+\item \emph{Device 2.} Define $\beta_x\le0.0223$, $\beta_y\le0.0222$,
+$\beta_\psi\le0.1726$ (a safe practical choice $\beta_x=\beta_y=0.020$,
+$\beta_\psi=0.15$). With $\tilde K_i=\beta_i K_i$,
+\begin{equation}
+\dot s_i=-\tilde K_i\Tr{s_i/\varepsilon_i}+\tilde d_i,\qquad
+|\tilde d_i|\le\Deff_i,
+\label{eq:canonical}
+\end{equation}
+the canonical scalar form.
+\end{itemize}
+\end{remark}
+
+\section{Lyapunov function and its derivative}
+\label{sec:lyap}
+
+\subsection{Candidate}
+Identical to the position note. For each axis fix a nominal ideal gain
+$K_i^*>0$ and use the gain-error rescaling that places $\beta_i$ in the numerator,
+\begin{equation}
+V_i(s_i,K_i)=\tfrac12 s_i^2+\frac{\beta_i}{2\gamma_i}(K_i-K_i^*)^2,
+\qquad
+V=\sum_i V_i.
+\label{eq:V}
+\end{equation}
+
+\subsection{Derivative, carrying the leak term in full}
+Differentiating \eqref{eq:V} along \eqref{eq:canonical} and \eqref{eq:gainlaw}, with
+$\sigma_i\equiv s_i\Tr{s_i/\varepsilon_i}\ge0$ and writing
+$g_i\equiv e^{\,\kappa(1-s_i^2/(9\varepsilon_\psi^2))}>0$ for the (bounded, positive)
+leak modulation:
+\begin{align}
+\dot V_i
+&= s_i\dot s_i+\frac{\beta_i}{\gamma_i}(K_i-K_i^*)\dot K_i\notag\\
+&= -\beta_i K_i\sigma_i+s_i\tilde d_i
++\frac{\beta_i}{\gamma_i}(K_i-K_i^*)\!
+\left[\gamma_i\sigma_i b(K_i)-c_i\!\Big(\tfrac{K_i}{K_{\max,i}}\Big)^{\!3}
+-\sigma^{\!*}_i(K_i-0.95K_{i0})g_i\right].
+\label{eq:Vdot_raw}
+\end{align}
+The first two bracketed pieces reproduce the position note exactly. Grouping the
+$K_i\sigma_i$ terms via the $\beta_i$-match,
+$-\beta_iK_i\sigma_i+\beta_iK_i\sigma_i b(K_i)=-\beta_iK_i\sigma_i(1-b(K_i))$,
+\begin{equation}
+\dot V_i=
+-\beta_i\!\left[K_i\sigma_i(1-b(K_i))+K_i^*\sigma_i b(K_i)\right]
++s_i\tilde d_i
+-\frac{\beta_i c_i}{\gamma_i}(K_i-K_i^*)\Big(\tfrac{K_i}{K_{\max,i}}\Big)^{\!3}
+\;\underbrace{-\;\frac{\beta_i\sigma^{\!*}_i}{\gamma_i}(K_i-K_i^*)(K_i-0.95K_{i0})g_i}_{\text{leak contribution }L_i}.
+\label{eq:Vdot}
+\end{equation}
+
+\subsection{The leak term is benign}
+$L_i=-\dfrac{\beta_i\sigma^{\!*}_i}{\gamma_i}(K_i-K_i^*)(K_i-0.95K_{i0})g_i$ is a
+\emph{product of two affine factors} in $K_i$, with the positive weight
+$\beta_i\sigma^{\!*}_i g_i/\gamma_i$. Two cases:
+\begin{itemize}[leftmargin=1.5em]
+\item If $K_i^*$ and $0.95K_{i0}$ lie on the same side of $K_i$, the two factors share
+a sign and $L_i\le0$: the leak \emph{helps} $\dot V_i$.
+\item Otherwise $L_i>0$ but is uniformly bounded. The product of affine factors is
+maximised at the midpoint $K_i=\tfrac12(K_i^*+0.95K_{i0})$, giving
+\begin{equation}
+L_i\le\frac{\beta_i\sigma^{\!*}_i\,\bar g_i}{4\gamma_i}\,(K_i^*-0.95K_{i0})^2,
+\qquad \bar g_i=e^{\kappa}=e^{0.25}\approx1.284,
+\label{eq:Lbound}
+\end{equation}
+using $g_i\le e^{\kappa}$ (the exponent is largest at $s_i=0$). This is a fixed
+additive constant, exactly like the cubic-pushback residual: it enlarges the ultimate
+ball but does not threaten sign-definiteness of the dominant $-\beta_iK_i^*\sigma_i$
+term.
+\end{itemize}
+Numerically, with $\sigma^{\!*}_x=0.5$, $\gamma_x=8$, $\beta_x=0.020$, and a generous
+gap $|K_x^*-0.95K_{x0}|\le50$,
+\[
+L_x\le\frac{0.020\cdot0.5\cdot1.284}{4\cdot8}(50)^2\approx1.0\ \text{(m/s}^2\text{ units)},
+\]
+comparable to the cubic-pushback residual and small against the dominant term over
+the operating range. The leak's \emph{equilibrium} (where its own contribution to
+$\dot K_i$ vanishes) is $K_i=0.95K_{i0}$, which is the warm-start anchor.
+
+\section{Region 1: adaptation active ($K_i\ll\Kmax-2$)}
+\label{sec:region1}
+Here $b(K_i)\approx1$, so $1-b(K_i)\approx0$ and \eqref{eq:Vdot} reduces to
+\begin{equation}
+\dot V_i\le-\beta_iK_i^*\sigma_i+s_i\tilde d_i
++\underbrace{\frac{\beta_ic_i}{\gamma_i}K_i^*\Big(\tfrac{K_i^*}{\Kmax}\Big)^{\!3}}_{\le\,\beta_ic_i\Kmax/\gamma_i}
++\underbrace{\frac{\beta_i\sigma^{\!*}_i\bar g_i}{4\gamma_i}(K_i^*-0.95K_{i0})^2}_{\text{leak residual }\eqref{eq:Lbound}} .
+\label{eq:region1}
+\end{equation}
+Outside the boundary layer ($|s_i|\ge\varepsilon$) the smoothed sign gives
+$\sigma_i\ge|s_i|\tanh1\approx0.7616|s_i|$, hence
+\begin{equation}
+\dot V_i\le-\big(\beta_i\tanh1\,K_i^*-\Deff_i\big)|s_i|+\text{(const)} .
+\end{equation}
+The first term is strictly negative when $\beta_i\tanh1\,K_i^*>\Deff_i$. Using
+$\Deff_i=\beta_i\Dwr_i$ (both $\dot s_i$ and $\tilde d_i$ are projected by the same row
+of $\Maug^{-1}$), the $\beta_i$ cancels and the condition is on the \emph{raw} gain:
+\begin{equation}
+\boxed{\;K_i^*>\frac{\Dwr_i}{\tanh1}\approx1.313\,\Dwr_i\;}
+\label{eq:B1raw}
+\end{equation}
+--- identical in form to the position note. The leak residual and cubic residual
+both enter only as fixed additive constants, so they set the size of the ultimate
+ball, not its existence. Inside the boundary layer $\Tr{s_i/\varepsilon}\approx
+s_i/\varepsilon$ and the surface linearises to
+$\dot s_i\approx-\tfrac{\beta_iK_i}{\varepsilon}s_i+\tilde d_i$, attracting $s_i$ to
+\begin{equation}
+|s_i|_{\mathrm{ss}}\lesssim\frac{\varepsilon\,\Dwr_i}{K_i},
+\label{eq:ss}
+\end{equation}
+with $\beta_i$ again cancelling through $\Deff_i=\beta_i\Dwr_i$.
+
+\section{Region 2: gain saturating ($K_i\to\Kmax$)}
+\label{sec:region2}
+As $K_i$ passes $\Kmax-2$, $b(K_i)\to0$ and the growth term shuts off. From
+\eqref{eq:gainlaw} the gain rolls back via cubic pushback and leak,
+$\dot K_i\approx-c_i(K_i/\Kmax)^3-\sigma^{\!*}_i(K_i-0.95K_{i0})g_i<0$, so the cap is
+asymptotic, not penetrated. With $b\approx0$ in \eqref{eq:Vdot} the first bracket
+becomes $K_i\sigma_i\ge(\Kmax-2)\sigma_i$, and outside the boundary layer
+\begin{equation}
+\dot V_i\le-\big(\beta_i\tanh1(\Kmax-2)-\Deff_i\big)|s_i|+\text{(const)},
+\end{equation}
+negative provided $\Dwr_i<\tanh1(\Kmax-2)$. Region 2 is therefore the
+\emph{safest} region for stability; its cost is sustained actuator saturation and
+chatter, which is exactly what the cubic pushback and leak exist to avoid.
+
+\section{Uniform ultimate boundedness}
+\label{sec:uub}
+\begin{theorem}[UUB of $(s,K)$ for the velocity controller]
+Under the bounded-disturbance assumption $|[\Maug^{-1}d]_i|\le\Deff_i$, choose per axis
+\begin{equation}
+\Kmax>\frac{\Dwr_i}{\tanh1}\approx1.313\,\Dwr_i,
+\qquad
+K_i^*\in\Big(\tfrac{\Dwr_i}{\tanh1},\,\Kmax-2\Big),
+\end{equation}
+and any $K_i(0)\ge0$. Then there is a ball
+\[
+\mathcal{B}=\Big\{(s,K):|s_i|\le\varepsilon+O(\Dwr_i/\Kmax),\;
+0\le K_i\le\Kmax+O\big((c_i+\sigma^{\!*}_i)/\gamma_i\big)\Big\}
+\]
+that every trajectory of \eqref{eq:canonical},\eqref{eq:gainlaw} enters in finite time
+and never leaves.
+\end{theorem}
+\begin{proof}[Sketch]
+$V$ is positive definite, radially unbounded, $C^1$. Outside the boundary layer in
+Region 1, summing \eqref{eq:region1} over axes gives
+$\dot V\le-\sum_i\beta_i(\tanh1\,K_i^*-\Dwr_i)|s_i|+\sum_i\big(\beta_ic_i\Kmax/\gamma_i
++L_i^{\max}\big)$; the first sum is strictly negative under \eqref{eq:B1raw} and the
+second is a fixed positive constant, so $V$ enters and stays in a sublevel set. Inside
+the boundary layer $|s_i|\le\varepsilon$ bounds $s$ directly; Region 2 bounds the
+$K$-component because both cubic pushback and the leak prevent $K_i$ from exceeding
+$\Kmax$ by more than $O((c_i+\sigma^{\!*}_i)/\gamma_i)$. UUB follows by the standard
+Lyapunov--Yoshizawa argument.
+\end{proof}
+
+\section{Disturbance headroom for the velocity configuration}
+\label{sec:headroom}
+The admissible task-space disturbance per axis is $\Dwr_i<\tanh1\cdot\Kmax$. With the
+velocity caps $\Kmax=(60,80,100)\,$N\,m,
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Axis $i$ & $x$ & $y$ & $\psi$\\
+\midrule
+$\Kmax$ (velocity, no-DOB) & 60 & 80 & 100\\
+Admissible $\Dwr_i=\tanh1\cdot\Kmax$ (N\,m) & 45.7 & 60.9 & 76.2\\
+Cross-coupling cost (Rem.~\ref{rem:coupling}, at $\Kmax$) & 8.1 & 6.7 & 2.8\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{The binding constraint moves to actuator saturation}
+The dominant high-gain disturbance is the actuator-saturation residual (B5 of the
+position note). The per-wheel switching torque after the wheel-map, in the
+worst-case aligned configuration with all three gains at the cap and all surfaces
+outside their boundary layers, is
+\[
+|M^{\mathrm{sw,wheel}}|\le\tfrac14\big(\Kmax^x+\Kmax^y+L_\psi\Kmax^\psi\big)\tanh1
+\approx0.25(60+80+0.13\cdot100)(0.762)\approx29.1\ \text{N\,m},
+\]
+with $L_\psi=R/(l+h)\approx0.13$. Against $M_{\max}=10\,$N\,m the per-wheel residual is
+$29.1-10\tanh(2.91)\approx19.2\,$N\,m, projecting to
+$\Delta D^{\mathrm{sat}}\le4\times19.2\approx76.7\,$N\,m on a single task axis.
+
+\begin{remark}[Saturation overruns $x$-axis headroom at the simultaneous-cap worst case]
+This is the one place the velocity configuration is materially \emph{tighter} than the
+position case. With the position note's $\Kmax=100$ on all axes the headroom was
+$76.2\,$N\,m everywhere; the velocity $x$-axis cap of $60$ drops its headroom to
+$45.7\,$N\,m, while the worst-case saturation residual is essentially unchanged at
+${\sim}77\,$N\,m. The naive worst-case budget on $x$ therefore reads
+\[
+\Dwr_x\big|_{\text{worst}}\approx
+\underbrace{8.1}_{\text{cross}}+\underbrace{2}_{\text{fric}}+\underbrace{5}_{\text{Coriolis/param}}+\underbrace{76.7}_{\text{sat}}
+\approx91.9\ \text{N\,m}\;>\;45.7\ \text{N\,m},
+\]
+a \emph{negative} margin. The resolution is the same as in the position note: this
+combination --- all three $K_i$ pinned at the cap \emph{and} all three surfaces
+outside their boundary layers \emph{simultaneously} --- does not persist in operation:
+\begin{itemize}[leftmargin=1.5em]
+\item The cubic-pushback/leak equilibrium pins $K_i$ at
+$K_i^{\mathrm{eq}}=\Kmax(\gamma_i\eta_i/c_i)^{1/3}$ for chatter $\eta_i$, below the cap.
+\item Inside the boundary layer $\Tr{s_i/\varepsilon}\approx s_i/\varepsilon\ll1$, so the
+switching wrench is far below $K_i$ and saturation never triggers.
+\item Saturation is a transient of the reaching phase only.
+\end{itemize}
+The practical conclusion is sharper than for the position controller: \textbf{with the
+velocity caps, the $x$-axis must not be driven outside its boundary layer with $K_x$
+near the cap}. This is precisely why $K_{x0}$ should be sized to the \emph{operating}
+disturbance (\S\ref{sec:K0}), keeping the reaching phase short and $K_x$ well below the
+cap, rather than to the worst case.
+\end{remark}
+
+\section{Initial-gain ($K_{0}$) sizing}
+\label{sec:K0}
+The leak term \eqref{eq:gainlaw} drives $K_i$ toward $0.95K_{i0}$ whenever the
+growth term is quiet (small $\sigma_i$). So $K_{i0}$ is the \emph{operating gain the
+controller relaxes to}, and it must by itself dominate the \emph{operating} (not
+worst-case) disturbance, or the surface escapes its boundary layer before adaptation
+can grow $K_i$. The relevant budget excludes the saturation residual (which does not
+fire in the boundary layer) and uses the actual small-$K$ cross-coupling
+(which scales with the operating $K$, not $\Kmax$). For velocity tracking the
+operating disturbance is friction-mismatch $+$ Coriolis/parametric, on the order of
+\[
+\Dwr_{x,\mathrm{op}}\approx5,\quad
+\Dwr_{y,\mathrm{op}}\approx5,\quad
+\Dwr_{\psi,\mathrm{op}}\approx2\ \text{N\,m}
+\]
+(the $\psi$-channel friction spin torque for $\chi=8\,$mm, $\mu=0.6$, $N_i\approx74\,$N,
+$V_P\approx0.1\,$m/s is $M_{zi}\approx5.7\times10^{-3}\,$N\,m/wheel, i.e.
+${\sim}3\times10^{-3}\,$N\,m on the heading channel --- negligible; the $2\,$N\,m is the
+parametric/Coriolis floor). Applying the Region-1 reaching condition \eqref{eq:B1raw}
+at startup,
+\begin{equation}
+\boxed{\;K_{i0}\gtrsim\frac{\Dwr_{i,\mathrm{op}}}{\tanh1}\approx1.313\,\Dwr_{i,\mathrm{op}}\;}
+\end{equation}
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Axis $i$ & $x$ & $y$ & $\psi$\\
+\midrule
+Operating $\Dwr_{i,\mathrm{op}}$ (N\,m) & 5.0 & 5.0 & 2.0\\
+Lower bound $K_{i0}\ge\Dwr_{i,\mathrm{op}}/\tanh1$ (N\,m) & 6.6 & 6.6 & 2.6\\
+Current notebook setting $K_{i0}$ & 5 & 5 & 20\\
+\midrule
+Equilibrium $K_i^{\mathrm{eq}}=\Kmax(\gamma_i\eta/c_i)^{1/3}$, $\eta=0.01$ & 55.7 & 63.5 & 79.4\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Reading the table.}
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{$x,y$:} the current $K_{0}=5$ is marginally \emph{below} the
+$6.6\,$N\,m floor. At exactly $5$ the startup surface can drift outside the boundary
+layer for the first ${\sim}50\,$ms until adaptation lifts $K$. Raising to
+$K_{x0}=K_{y0}=8$--$10$ buys a clean ${\sim}1.5$--$2\times$ margin over the operating
+disturbance with no downside (the cubic/leak still cap the steady gain at
+$K^{\mathrm{eq}}$).
+\item \textbf{$\psi$:} the current $K_{\psi0}=20$ is far \emph{above} the $2.6\,$N\,m
+floor --- a deliberate, defensible warm start. Heading needs aggressive initial
+authority to suppress the DOB-onset transient (the structural translation/yaw
+asymmetry: translation compensation gain ${\sim}2.25\times$ vs.\ yaw lever
+$L_\psi\approx0.13$). Sitting $K_{\psi0}$ near $0.2\Kmax$ pre-loads the heading loop so
+the reaching phase is essentially instantaneous, at the cost of a little startup
+chatter --- exactly the trade the leak term is tuned for. The same asymmetry is the DC
+bias source that drives the heading drift of \S\ref{sec:frame}: a high $K_{\psi0}$
+shrinks the steady-state $s_\psi^{\mathrm{ss}}=\varepsilon_\psi\Dwr_\psi/K_\psi$ and so
+reduces the open-loop drift rate, but it cannot eliminate it --- only the outer heading
+loop \eqref{eq:outer} does that. No change recommended, but $K_{\psi0}$ is not a
+substitute for closing the cascade.
+\end{itemize}
+
+\paragraph{Cascade terms in the operating budget.} The two cascade disturbances of
+\S\ref{sec:cascade} --- the setpoint-rate term ($\le k_{p,\psi}\bar s_\psi$, a few
+percent) and the heading-rotation term (${\sim}1.35\,$N\,m on translation) --- are
+already inside the $\Dwr_{i,\mathrm{op}}$ figures above; neither moves the $K_{i0}$
+floors materially.
+
+\paragraph{Reaching time at startup.} From the quadratic balance
+$t_{\mathrm{reach}}\lesssim \Dwr_i/(\gamma_i|s_i(0)|)$, with $|s_i(0)|\sim$ the initial
+velocity error: for $\Dwr\sim5\,$N\,m, $\gamma_x=8$, $|s_x(0)|\sim0.5\,$m/s, reaching
+the boundary layer takes ${\sim}5/(8\cdot0.5)\approx1.25\,$s if starting from
+$K=0$ --- but only ${\sim}0.2\,$s when warm-started at $K_{x0}=8$, which already nearly
+satisfies \eqref{eq:B1raw}. This is the concrete payoff of sizing $K_{0}$ correctly.
+
+\section{Mixed relative-degree variant: degree-1 translation, degree-2 yaw}
+\label{sec:mixed}
+The cascade of \S\ref{sec:cascade} bounds heading with an \emph{outer} loop. An
+alternative --- preferred for deployment and for generating PINN data that matches the
+controller actually used at run time --- folds the heading objective \emph{into the
+ASMC itself} by giving the yaw axis its natural relative degree. The translational axes
+stay exactly as analysed (degree 1, velocity error); only the yaw surface changes:
+\begin{equation}
+s_x=\Vx-\Vx^d,\quad s_y=\Vy-\Vy^d,\qquad
+\boxed{\,s_\psi=\dot e_\psi+\lambda_\psi(e_\psi)\,e_\psi\,},
+\label{eq:mixed_surface}
+\end{equation}
+with $e_\psi$ the shaped heading error \eqref{eq:epsi} and $\dot e_\psi=e_\psi'(d_\psi)
+\,(\dot\psi-\dot\psi_d)$. This is the \emph{exact} yaw surface of \texttt{asmc\_torques};
+the mixed controller is ``velocity ASMC on $(x,y)$, position ASMC on $\psi$.'' The
+relative-degree structure now matches the control objective axis-by-axis: translation
+wants velocity (degree 1, position free), heading wants the angle (degree 2). The
+asymmetry is correct, not a hack.
+
+\subsection{Why this kills the drift without an integrator}
+The degree-1 yaw residual integrated into drift, $\Delta\psi=\int s_\psi\,d\tau$
+\eqref{eq:dpsi_integral}. With \eqref{eq:mixed_surface}, the manifold $s_\psi=0$ is
+itself the stable first-order law $\dot e_\psi=-\lambda_\psi e_\psi$, so $e_\psi\to0$
+\emph{on the surface}: a biased $\tilde d_\psi$ no longer integrates, it is absorbed
+into a bounded steady error exactly as in the position note,
+\begin{equation}
+|e_\psi|_{\mathrm{ss}}\lesssim\frac{s_\psi^{\mathrm{ss}}}{\lambda_{\psi,\min}}
+=\frac{\varepsilon_\psi\,\Dwr_\psi}{\lambda_{\psi,\min}\,K_\psi}.
+\label{eq:mixed_ess}
+\end{equation}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+& $\Dwr_\psi=1.0$ & $\Dwr_\psi=2.0$\\
+\midrule
+$|e_\psi|_{\mathrm{ss}}$ at $\lambda_{\psi,\min}=0.5$ (deg) & 0.116 & 0.231\\
+$|e_\psi|_{\mathrm{ss}}$ at $\lambda_{\psi,\max}=5.0$ (deg) & 0.012 & 0.023\\
+\bottomrule
+\end{tabular}
+\end{center}
+The dynamic Gaussian $\lambda_\psi(e_\psi)$ rises toward $\lambda_{\psi,\max}$ as
+$e_\psi\to0$, so the \emph{operating} bound is the tight right column
+($\le0.02^\circ$); the worst case uses $\lambda_{\psi,\min}$. Either way it is a fixed
+offset (Gap 1, benign), versus the degree-1 secular drift of $1.7$--$3.5^\circ$ over
+$30\,$s. No $k_{p,\psi}$, no timescale-separation assumption --- $\lambda_\psi$ does the
+job a single self-contained certificate.
+
+\subsection{What the proof inherits, and what changes}
+The aggregate Lyapunov function becomes \emph{mixed}: the $(x,y)$ blocks keep the
+relative-degree-1 canonical form of \S\S\ref{sec:plant}--\ref{sec:uub} verbatim, while
+the $\psi$ block reverts to the position note's degree-2 analysis --- the dynamic-$\lambda$
+cancellation $\dot s_\psi=[\Maug^{-1}\tau_{sw}]_\psi+[\Maug^{-1}d]_\psi$ holds because
+the yaw equivalent control again carries the $\dot\lambda_\psi$ feedforward (below). The
+per-axis $\beta_i$-cancellation and the (B1) bound $\Kmax>\Dwr_\psi/\tanh1$ are
+unchanged; one simply can no longer claim ``uniformly relative degree 1.'' Two genuine
+shifts:
+\begin{itemize}[leftmargin=1.5em]
+\item \emph{Reduced-order heading dynamics.} On the manifold the heading settles with
+time constant $1/\lambda_\psi\in[0.2,2.0]\,$s. The reaching (boundary-layer) bandwidth
+$\beta_\psi K_\psi/\varepsilon_\psi\approx171\,$rad/s is unchanged.
+\item \emph{Cross-coupling carries a position-type term.} The yaw switching
+$K_\psi\tanh(s_\psi/\varepsilon_\psi)$ still leaks into $x$ via $[\Maug^{-1}]_{x\psi}$,
+bounded by $|[\Maug^{-1}]_{x\psi}|K_\psi\approx0.30\,$N\,m ($0.7\%$ of the $x$ headroom)
+because $|\tanh|\le1$ --- the Device-1 bound is identical. But $s_\psi$ now contains
+$\lambda_\psi e_\psi$ (a position quantity), so during large heading transients the
+leak sits near its bound more of the time; the \emph{operating} $\Dwr_x$ during turns is
+marginally higher, still negligible against the $\sim$46\,N\,m $x$ headroom.
+\end{itemize}
+
+\subsection{The yaw equivalent control must be restored in full}
+\label{sec:mixed_eq}
+Degree-2 yaw tracking requires the $\dot\lambda_\psi$ feedforward, identical to
+\texttt{asmc\_torques}:
+\begin{equation}
+\alpha_{\mathrm{eq}}=\alpha_{\mathrm{ff}}
+-\dot\lambda_\psi\,e_\psi-\lambda_\psi\,\dot e_\psi\,e_\psi',
+\label{eq:mixed_alpha}
+\end{equation}
+where $(\lambda_\psi,\dot\lambda_\psi)=\texttt{get\_dynamic\_lambda}(e_\psi,
+e_\psi'\dot e_\psi,\lambda_{\psi,\min},\lambda_{\psi,\max},\mu_\psi)$ and
+$\dot e_\psi=e_\psi'(\dot\psi-\dot\psi_d)$. \textbf{One correction that matters
+independently of the surface choice:} the present \texttt{asmc\_torques\_vel} yaw
+equivalent wrench omits the yaw viscous-drag term that \texttt{asmc\_torques} carries,
+\begin{equation}
+\Big(\tfrac{4p_1(l+h)^2}{R^2}+\tfrac{8p_2h^2}{(R-R_d)^2}\Big)\dot\psi
+\approx 38.2\,\dot\psi\ \text{N\,m},
+\label{eq:yaw_visc}
+\end{equation}
+i.e.\ ${\sim}11.5\,$N\,m at $\dot\psi=0.3\,$rad/s. Left uncancelled this is a large,
+$\dot\psi$-proportional component of $\tilde d_\psi$ --- it would \emph{worsen} the very
+drift the mixed surface fixes. Restoring it (it is a known, exactly-cancellable drag)
+shrinks $\Dwr_\psi$ materially and should be done whether or not the surface is changed.
+
+\subsection{Code edits for the mixed controller}
+\label{sec:mixed_code}
+Relative to the current \texttt{asmc\_torques\_vel}, the edits are confined to the yaw
+channel; $(x,y)$ are untouched.
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Unpack pose and read the desired heading.} Add $\psi=\texttt{state[4]}$;
+compute $d_\psi=\psi-\texttt{get\_psi\_des(t)}$, then $e_\psi$ and $e_\psi'$ from
+\eqref{eq:epsi} (the \texttt{e\_psi}/\texttt{edash\_psi} expressions).
+\item \textbf{Degree-2 yaw surface.} Replace $s_\psi=\dot\psi-\omega_d$ with
+$\dot e_\psi=e_\psi'\,(\dot\psi-\texttt{get\_omega\_des\_v(t)})$ and
+$s_\psi=\dot e_\psi+\lambda_\psi\,e_\psi$, where $(\lambda_\psi,\dot\lambda_\psi)=
+\texttt{get\_dynamic\_lambda}(e_\psi,e_\psi'\!\cdot\!(\dot\psi-\omega_{\mathrm{ff}}),
+\dots)$. Leave $s_x,s_y$ exactly as they are.
+\item \textbf{Yaw equivalent control \eqref{eq:mixed_alpha}.} Replace
+$\alpha_{\mathrm{eq}}=\texttt{get\_alpha\_des\_v(t)}$ with
+$\alpha_{\mathrm{eq}}=\alpha_{\mathrm{ff}}-\dot\lambda_\psi e_\psi-\lambda_\psi\dot
+e_\psi e_\psi'$.
+\item \textbf{Restore the yaw viscous term \eqref{eq:yaw_visc}} by adding
+$+\big(4p_1(l+h)^2/R^2+8p_2h^2/(R-R_d)^2\big)\dot\psi$ inside \texttt{M\_psi\_eq}, matching
+\texttt{asmc\_torques}.
+\item \textbf{Parameters.} The yaw $\lambda$ fields already exist on
+\texttt{ASMCParams} ($\lambda_{\psi,\min}{=}0.5$, $\lambda_{\psi,\max}{=}5.0$,
+$\mu_\psi{=}100$); no \texttt{kp\_psi} is needed (the cascade gain is retired). The
+adaptive-gain block and the $(x,y)$ surfaces are unchanged.
+\end{enumerate}
+At $t=0$, $\psi(0)=\psi_d(0)\Rightarrow e_\psi(0)=0$ and $\lambda_\psi e_\psi(0)=0$, so
+the yaw surface starts on its manifold with no startup transient, provided
+$\dot\psi(0)=\omega_{\mathrm{ff}}(0)$ (already true by construction).
+
+\subsection{PINN-data implication}
+The mixed controller changes the yaw excitation the network sees: $s_\psi$ carries
+$\lambda_\psi e_\psi$, so the heading-channel torque spectrum on turns gains
+low-frequency content (the $\lambda_\psi e_\psi$ term) absent from the degree-1 data.
+This is the controller that will run under MPC, so it is the correct distribution to
+train on --- but datasets generated with the degree-1 velocity controller and the
+mixed controller must \emph{not} be pooled; regenerate consistently.
+
+\section{Conclusion}
+The central result of this revision is a correction: body-frame velocity-error UUB does
+\emph{not} certify the intended trajectory. A bounded pose offset is harmless for PINN
+training (Gap 1), but a \emph{growing} heading error (Gap 2) changes the trajectory
+class --- a circle opens into a spiral. Because heading error is the time-integral of
+the yaw surface, $\Delta\psi=\int s_\psi\,d\tau$, any DC bias in the yaw disturbance
+(the $\chi^2$ spin torque, phase-locked roller handoff, and above all the
+$2.25{:}0.13$ DOB translation/yaw asymmetry) integrates into linear drift ---
+quantified here at $2$--$5^\circ$ per circle lap. The inner-loop UUB proof is silent on
+this. The fix is the cascade: an outer heading loop $\omega^d=\dot\psi_d+k_{p,\psi}
+e_\psi(d_\psi)$, acting on the position controller's \emph{shaped} heading error
+$e_\psi$, converts the unbounded integrator into a stable nonlinear first-order system,
+bounding $d_\psi$ at a fixed sub-$0.1^\circ$ offset. Because $e_\psi'\ge1$ everywhere,
+the shaped form is never slower than a raw-error correction and recovers faster from
+large excursions. Timescale separation is
+comfortable (inner $25$--$171\,$rad/s; outer $\le5$--$34\,$rad/s), and the cascade's
+added disturbance is negligible against the (B1) headroom.
+
+For deployment and for PINN data that matches the run-time controller, the
+\emph{mixed relative-degree} variant (\S\ref{sec:mixed}) is preferred: keep the
+degree-1 velocity surfaces on $(x,y)$ but give yaw its natural degree-2 surface
+$s_\psi=\dot e_\psi+\lambda_\psi e_\psi$ on the shaped error. The manifold itself then
+enforces $\dot e_\psi=-\lambda_\psi e_\psi$, so a biased $\tilde d_\psi$ produces a
+\emph{bounded} $|e_\psi|_{\mathrm{ss}}\le\varepsilon_\psi\Dwr_\psi/(\lambda_{\psi,\min}
+K_\psi)\lesssim0.02$--$0.23^\circ$ rather than secular drift --- no outer loop, no
+timescale-separation caveat. The cost is a mixed certificate (degree-1 on $(x,y)$,
+degree-2 on $\psi$) and the restored yaw equivalent control, including the
+$\sim38.2\,\dot\psi\,$N\,m viscous term \eqref{eq:yaw_visc} the present velocity
+controller omits --- a correction worth making on its own merits, since uncancelled it
+is itself an $\sim$11\,N\,m yaw disturbance.
+
+The relative-degree-one inner-loop analysis itself transfers cleanly from the position
+note: no dynamic $\lambda$, no $\dot\lambda$ feedforward, the canonical
+$\dot s=-\tilde K\tanh(s/\varepsilon)+\tilde d$ falls out directly, and the
+$\beta_i$-cancellation and (B1) $\Kmax>\Dwr/\tanh1$ hold unchanged. Three numerical
+facts:
+\begin{enumerate}[leftmargin=2em]
+\item Inverting the augmented $\Maug$ lowers worst-axis cross-coupling to
+${\sim}13.4\%$ (from ${\sim}17.7\%$).
+\item The smaller velocity caps make the simultaneous-cap actuator-saturation residual
+overrun the $x$-axis headroom; the design response is to keep $K_x$ off the cap by
+sizing $K_{x0}$ to the operating disturbance, not the worst case.
+\item The leak-to-$K_0$ term is sign-indefinite but benign --- a product of two affine
+factors bounded by \eqref{eq:Lbound} --- pinning the relaxed gain at $0.95K_{i0}$.
+\end{enumerate}
+The initial-gain rule $K_{i0}\gtrsim\Dwr_{i,\mathrm{op}}/\tanh1$ recommends nudging
+$K_{x0},K_{y0}$ from $5$ to ${\sim}8$--$10\,$N\,m and confirms $K_{\psi0}=20$ as an
+intentional heading warm start --- though a high $K_{\psi0}$ only \emph{reduces} the
+drift rate; closing the heading loop is what \emph{bounds} it.
+
+\appendix
+\section{Numerical scratchpad}
+\label{sec:scratch}
+$\tanh1=(e^2-1)/(e^2+1)=0.76159\ldots$\quad
+$L_\psi=R/(l+h)=0.05/0.385=0.12987$.\quad
+$\tilde m=m_s+4J_1/R^2=35.6+4(5.87\times10^{-3})/0.0025=44.992$.\quad
+$I_{\psi,\mathrm{aug}}=I_s+4(l+h)^2J_1/R^2=4.42+4(0.385)^2(5.87\times10^{-3})/0.0025=5.812$.\quad
+Smallest eigenvalue of $\Maug\approx5.79$.\quad
+$\beta_x\le[\Maug^{-1}]_{xx}=0.02228$, $\beta_y\le0.02225$,
+$\beta_\psi\le0.17261$.\quad
+Leak modulation cap $\bar g=e^{0.25}=1.2840$; leak vanishes at $K=0.95K_0=(4.75,4.75,19.0)$.
+
+\end{document}

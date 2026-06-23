@@ -1,0 +1,67 @@
+# ===========================================================================
+# .gitignore for code_insights/  (Mecanum PINN digital twin)
+# Goal: keep source + configs + notebooks + CSV data products + checkpoints.
+# Exclude heavy binary solver references, regenerable figures, caches, scratch.
+# ===========================================================================
+
+# --- Heavy binary solver references (983 MB; reproducible) ---------------
+# The .jld2 reference TRAJECTORIES for the solver-ablation / work-precision
+# study have been MOVED OUT of the repo to ../data/solver_ablation_studies/
+# (dense 39-D state at tol 1e-10..1e-12, ~73 MB each; the notebook now writes
+# them there via REF_DIR). The benchmark folder keeps only its small
+# conclusions (SOLVER_SELECTION.md, stage*_results.arrow, executed notebooks).
+# This rule is defensive in case any .jld2 is regenerated inside the repo.
+*.jld2
+
+# --- Images: regenerated from CSV diagnostics ----------------------------
+# (You build figures from the CSVs, so they don't belong in git.)
+# NOTE: if the slide deck needs a static asset (e.g. VNIT logo), force-add it
+#       with:  git add -f presentation/<logo>.png
+*.png
+*.svg
+*.jpg
+*.jpeg
+*.gif
+
+# --- Python caches / compiled -------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Scratch / temp (per CLAUDE.md conventions) --------------------------
+_tmp/
+_nb_read_eval/
+.headroom/
+
+# --- Logs, DBs, process output ------------------------------------------
+*.log
+*.out
+*.db
+
+# --- Environments (don't sync venvs across Win <-> WSL2) -----------------
+.venv/
+venv/
+env/
+myenv/
+
+# --- OS / editor junk ----------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+.vscode/
+.idea/
+
+# ===========================================================================
+# Explicitly KEPT (documented so future-you doesn't second-guess):
+#   *.csv     diagnostic data products (figures rebuild from these)
+#   *.ipynb   notebooks  (consider stripping outputs before commit; see below)
+#   *.pdf     decks / reference papers
+#   *.html    rendered trajectory diagnostics
+#   *.pt *.pth *.npz   trained checkpoints + decimated caches
+#   *.toml *.jl *.py *.md *.tex *.arrow(fixtures)
+# ===========================================================================

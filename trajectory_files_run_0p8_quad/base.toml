@@ -1,0 +1,67 @@
+[dob]
+enable = false
+
+[physics]
+chi = [0.0, 0.002, 0.005, 0.008]
+friction_case = 1
+mu_friction = 0.8
+
+[platform.com_offset]
+aX = 0.016
+aY = -0.026
+
+[platform.contact]
+Max_torque = 10.0
+rollers_per_wheel = 12
+
+[platform.geometry]
+R = 0.05
+Ra = 0.0355
+h = 0.235
+l = 0.15
+
+[platform.mass]
+Is = 4.42
+J_roller = 1.0e-6
+J_wheel = 0.00587
+m = 30.0
+m_wheel = 1.4
+
+[platform.viscous]
+p1_case1 = 0.11
+p1_case2 = 0.011
+p2_case1 = 0.00578
+p2_case2 = 0.000578
+
+[solver]
+dtmax = 0.001
+maxiters = 10000000
+name = "FBDF"
+reltol = 1.0e-9
+saveat_rate = 2000
+
+    [solver.abstol]
+    body_vel = 1.0e-8
+    bristle = 1.0e-10
+    bristle_rot = 1.0e-7
+    dist_est = 1.0e-7
+    gains = 1.0e-7
+    gamma = 1.0e-7
+    observer = 1.0e-7
+    psi = 1.0e-7
+    womega = 1.0e-7
+    worldpos = 1.0e-7
+    wtheta = 1.0e-8
+
+    [solver.abstol_counts]
+    body_vel = 3
+    bristle = 8
+    bristle_rot = 4
+    dist_est = 3
+    gains = 3
+    gamma = 4
+    observer = 3
+    psi = 1
+    womega = 4
+    worldpos = 2
+    wtheta = 4

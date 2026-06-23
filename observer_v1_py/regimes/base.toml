@@ -1,0 +1,36 @@
+# =============================================================================
+# base.toml — shared defaults for observer training-data regimes.
+# Each regime TOML in this folder overrides these per-table (mirrors the
+# data-generation base.toml + per-profile TOML pattern). Read by
+# mecanum_observer.data.load_regime(); regime values win.
+# =============================================================================
+
+[regime]
+name = "default"
+description = "shared defaults; overridden by per-regime TOMLs"
+
+[data]
+# mu is fixed at 0.5 in the active dataset; chi grid is the four swept values.
+mu = 0.5
+chi = [0.0, 0.002, 0.005, 0.008]
+include_profiles = []          # empty = all profiles
+exclude_profiles = []
+per_profile_cap = 0            # cap on (profile,combo) groups; 0 = no cap
+subsample_fraction = 1.0       # fraction of groups kept (learning-curve knob)
+chi_stratify = false           # prioritise multi-chi combos when capping
+matched_chi_quads_only = false # keep only combos spanning >= min_chi_per_combo chi
+min_chi_per_combo = 3
+
+[split]
+val_frac = 0.15
+test_frac = 0.15
+seed = 1234
+
+[train]
+window = 32                    # causal lookback (8 vs 32 ablation lives in regime A)
+# 5-phase curriculum (grounding -> phys_rampup -> overlap -> grnd_rampdown ->
+# physics), same schedule as train_GPU_PINN_v14. Present for EVERY subset; with
+# physics_loss=false the physics weight stays 0 (supervised throughout the lr
+# schedule), with physics_loss=true the gamma + wheel-balance residuals ramp in.
+phases = "a1_5phase"
+physics_loss = false

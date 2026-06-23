@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Mecanum PINN Digital Twin — VNIT</title>
+<!-- ===================== Academic Navy theme ===================== -->
+<style>
+:root{
+  --navy:#10243E; --navy2:#1B3A5B; --steel:#3E6691; --steell:#7E9BBE;
+  --gold:#B07D2B; --goldl:#D8AE5C; --ink:#1C2530; --light:#EEF2F7;
+  --paper:#FFFFFF; --grid:#C9D3DF; --red:#9B2D30; --green:#2E6B4F;
+  --serif:"Palatino Linotype","Book Antiqua",Georgia,serif;
+  --sans:"Segoe UI",system-ui,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:#5b6470;}
+body{font-family:var(--serif);color:var(--ink);counter-reset:slide;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+
+.slide{
+  position:relative;width:1280px;height:720px;background:var(--paper);
+  margin:18px auto;overflow:hidden;display:flex;flex-direction:column;
+  counter-increment:slide;box-shadow:0 4px 18px rgba(0,0,0,.35);
+}
+/* one 16:9 page per slide for PDF export */
+@media print{
+  html,body{background:#fff;}
+  @page{size:13.333in 7.5in;margin:0;}
+  .slide{margin:0;box-shadow:none;page-break-after:always;break-after:page;}
+  .slide:last-child{page-break-after:auto;break-after:auto;}
+}
+/* header band */
+.hdr{height:60px;background:var(--navy);color:#fff;display:flex;align-items:center;
+  justify-content:space-between;padding:0 30px;flex:0 0 auto;}
+.hdr .sec{font-family:var(--sans);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--goldl);}
+.hdr .sec b{color:#fff;font-weight:600;}
+.hdr .brand{display:flex;align-items:center;gap:10px;}
+.hdr .brand img{height:38px;background:#fff;border-radius:5px;padding:2px 4px;}
+.hdr .brand .txt{font-family:var(--sans);font-size:11px;line-height:1.15;text-align:right;color:#dfe7f1;}
+.hdr .brand .txt b{display:block;color:#fff;font-size:12px;letter-spacing:.02em;}
+/* content */
+.body{flex:1 1 auto;padding:20px 34px 8px 34px;overflow:hidden;display:flex;flex-direction:column;min-height:0;}
+.body h1{font-size:27px;color:var(--navy);font-weight:600;line-height:1.12;margin-bottom:2px;}
+.body h1 .accent{color:var(--gold);}
+.subttl{font-family:var(--sans);font-size:13.5px;color:var(--steel);margin-bottom:10px;}
+.rule{height:3px;width:100%;background:linear-gradient(90deg,var(--gold) 0 64px,var(--grid) 64px 100%);margin:6px 0 12px;}
+/* footer */
+.ftr{height:30px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:0 30px;font-family:var(--sans);font-size:10.5px;color:#6a7686;border-top:1px solid var(--grid);}
+.ftr .pg::after{content:counter(slide);}
+.ftr .vn{color:var(--navy);font-weight:600;}
+
+/* typography helpers */
+.body p{font-size:16.5px;line-height:1.42;margin:6px 0;}
+ul{margin:4px 0 4px 20px;} li{font-size:16px;line-height:1.4;margin:4px 0;}
+.small li,.small p{font-size:14.3px;line-height:1.34;}
+.tiny{font-size:12.5px;line-height:1.3;}
+b.key,.k{color:var(--navy);font-weight:600;}
+.g{color:var(--gold);font-weight:600;}
+.rd{color:var(--red);font-weight:600;}
+.gr{color:var(--green);font-weight:600;}
+.st{color:var(--steel);font-weight:600;}
+
+/* layout */
+.cols{display:flex;gap:20px;flex:1 1 auto;min-height:0;}
+.col{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;}
+.c60{flex:1.5;} .c40{flex:1;} .c55{flex:1.22;} .c45{flex:1;}
+.panel{background:var(--light);border-left:4px solid var(--steel);border-radius:4px;padding:10px 14px;margin:8px 0;}
+.panel.gold{border-left-color:var(--gold);}
+.panel.red{border-left-color:var(--red);}
+.panel.green{border-left-color:var(--green);}
+.panel h3{font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin-bottom:4px;}
+.panel.gold h3{color:var(--gold);} .panel.red h3{color:var(--red);} .panel.green h3{color:var(--green);}
+
+/* figure placeholder */
+.fph{border:2px dashed var(--goldl);background:repeating-linear-gradient(45deg,#fbf7ef,#fbf7ef 12px,#f5eede 12px,#f5eede 24px);
+  border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;color:var(--gold);padding:12px;min-height:120px;height:100%;}
+.fph .lab{font-family:var(--sans);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#b9933f;margin-bottom:6px;}
+.fph .desc{font-family:var(--serif);font-size:14px;color:var(--navy);line-height:1.3;max-width:92%;}
+.fph .fn{font-family:var(--sans);font-size:11px;color:#9a9485;margin-top:8px;}
+.fph .ic{font-size:26px;color:var(--goldl);margin-bottom:4px;}
+.figwrap{height:100%;width:100%;display:flex;align-items:center;justify-content:center;}
+.figimg{max-width:100%;max-height:100%;object-fit:contain;border:1px solid var(--grid);border-radius:5px;background:#fff;}
+
+/* table */
+table{border-collapse:collapse;width:100%;font-family:var(--sans);}
+th,td{border:1px solid var(--grid);padding:3px 7px;font-size:12.5px;text-align:left;}
+th{background:var(--navy);color:#fff;font-weight:600;}
+tr:nth-child(even) td{background:var(--light);}
+td .u{color:#7a8390;}
+
+/* math sizing */
+mjx-container{font-size:96% !important;}
+.eqs mjx-container{font-size:104% !important;}
+.eqbox{background:var(--light);border:1px solid var(--grid);border-radius:5px;padding:6px 12px;margin:7px 0;}
+
+/* state vector chips */
+.stategrid{display:grid;grid-template-columns:repeat(2,1fr);gap:5px 16px;font-family:var(--sans);font-size:12px;}
+.stategrid div{padding:2px 0;border-bottom:1px dotted var(--grid);}
+.stategrid .idx{color:var(--gold);font-weight:700;}
+
+/* ===== title slide ===== */
+.title{background:var(--navy);color:#fff;justify-content:flex-start;}
+.title .tbar{height:8px;background:linear-gradient(90deg,var(--gold),var(--goldl));}
+.title .twrap{flex:1;display:flex;flex-direction:column;padding:46px 70px;}
+.title .toprow{display:flex;align-items:center;justify-content:space-between;}
+.title .toprow img{height:84px;background:#fff;border-radius:8px;padding:6px 8px;}
+.title .inst{font-family:var(--sans);text-align:right;font-size:14px;color:#cdd8e6;line-height:1.3;}
+.title .inst b{display:block;color:#fff;font-size:16px;}
+.title h1{font-family:var(--serif);font-size:42px;line-height:1.1;margin-top:42px;color:#fff;font-weight:600;}
+.title h1 .hl{color:var(--goldl);}
+.title .sub{font-family:var(--serif);font-size:19px;color:#c9d6e6;margin-top:16px;line-height:1.4;max-width:1000px;}
+.title .meta{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;
+  font-family:var(--sans);font-size:14px;color:#aebfd2;}
+.title .meta .conf{color:var(--goldl);font-weight:600;font-size:16px;letter-spacing:.04em;}
+.title .ph{color:var(--goldl);}
+
+/* section divider visual on outline */
+.toc{display:flex;flex-direction:column;gap:9px;margin-top:6px;}
+.toc .item{display:flex;align-items:center;gap:14px;background:var(--light);border-radius:6px;padding:10px 16px;border-left:5px solid var(--gold);}
+.toc .num{font-family:var(--sans);font-weight:700;color:#fff;background:var(--navy);border-radius:50%;
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 auto;}
+.toc .t{font-size:16.5px;color:var(--navy);font-weight:600;}
+.toc .d{font-family:var(--sans);font-size:12.5px;color:var(--steel);}
+
+/* flowchart */
+.flow{display:flex;flex-direction:column;gap:7px;flex:1 1 auto;justify-content:center;}
+.frow{display:flex;align-items:center;justify-content:center;gap:0;}
+.fbox{border-radius:7px;padding:8px 12px;font-family:var(--sans);font-size:12.5px;line-height:1.25;
+  text-align:center;color:#fff;min-width:150px;max-width:215px;}
+.fbox .bt{font-weight:700;font-size:13px;display:block;margin-bottom:2px;}
+.fbox.julia{background:var(--navy);} .fbox.proc{background:var(--steel);}
+.fbox.data{background:var(--gold);} .fbox.stop{background:var(--red);}
+.fbox.pinn{background:var(--green);}
+.farr{color:var(--steel);font-size:24px;font-weight:700;padding:0 8px;}
+.fdown{color:var(--steel);font-size:22px;text-align:center;}
+.flab{font-family:var(--sans);font-size:10.5px;color:#7a8390;text-align:center;}
+</style>
+
+<!-- ===================== MathJax (local, tex->svg, self-contained) ===================== -->
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)'],['$','$']],displayMath:[['$$','$$'],['\\[','\\]']]},
+  svg:{fontCache:'global'},
+  startup:{ready:()=>{MathJax.startup.defaultReady();
+    MathJax.startup.promise.then(()=>{document.body.classList.add('mj-done');});}}
+};
+</script>
+<script src="assets/tex-svg.js" id="MathJax-script" async></script>
+</head>
+<body>
+
+<!-- ============================= 1. TITLE ============================= -->
+<section class="slide title">
+  <div class="tbar"></div>
+  <div class="twrap">
+    <div class="toprow">
+      <img src="assets/vnit_logo.jpeg" alt="VNIT"/>
+      <div class="inst"><b>Visvesvaraya National Institute of Technology, Nagpur</b>
+        Department of Mechanical Engineering</div>
+    </div>
+    <h1>A Physics-Informed Neural-Network <span class="hl">Digital Twin</span><br/>
+        of a Four-Mecanum-Wheel Omnidirectional Platform</h1>
+    <div class="sub">High-fidelity slip&ndash;spin&ndash;LuGre simulation, adaptive sliding-mode control,
+      and excitation design for <b style="color:#fff">forward-dynamics learning</b> and
+      <b style="color:#fff">inverse friction identification</b> (&mu;,&nbsp;&chi;).</div>
+    <div class="meta">
+      <div>
+        <span class="ph">Vishvesh Koranne</span> &nbsp;&middot;&nbsp; Research Scholar<br/>
+        <span style="color:#8fa3ba">Guide: Prof. Shital S. Chiddarwar</span>
+      </div>
+      <div style="text-align:right">
+        <span class="conf">KUKA youBot &middot; slip&ndash;spin digital twin</span><br/>
+        <span style="color:#8fa3ba">VNIT Nagpur &middot; 2026</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= 2. OUTLINE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Overview</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Outline</h1><div class="rule"></div>
+    <div class="toc">
+      <div class="item"><div class="num">I</div><div><div class="t">The plant &mdash; youBot Mecanum platform</div>
+        <div class="d">Geometry &amp; parameters &middot; O vs X roller configuration &middot; no-slip kinematics &amp; Jacobian</div></div></div>
+      <div class="item"><div class="num">II</div><div><div class="t">Roller slip &amp; spin in the model</div>
+        <div class="d">Discrete rollers (12/wheel) &middot; contact hand-off &middot; passive roller DOF</div></div></div>
+      <div class="item"><div class="num">III</div><div><div class="t">Composite LuGre&ndash;Adamov friction</div>
+        <div class="d">The pre-slip problem &middot; bristle dynamics &amp; slip&ndash;spin coupling</div></div></div>
+      <div class="item"><div class="num">IV</div><div><div class="t">Adaptive sliding-mode control &amp; stability</div>
+        <div class="d">Velocity vs position references &middot; uniform ultimate boundedness</div></div></div>
+      <div class="item"><div class="num">V</div><div><div class="t">Excitation design, diagnostics &amp; data pipeline</div>
+        <div class="d">Friction-circle caps &middot; seven trajectories &middot; solver selection &middot; plant&nbsp;&rarr;&nbsp;PINN &middot; diagnostic screening &amp; whitelist (5345/5670)</div></div></div>
+      <div class="item"><div class="num">VI</div><div><div class="t">Identifiability of variables &amp; forces</div>
+        <div class="d">χ spin-gated &amp; μ slip-gated from the observable forces &middot; the thin identifiable tail &middot; roller observability &amp; force anisotropy &middot; force-law adequacy for the PINN head</div></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 3. PLATFORM ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Plant &nbsp; / &nbsp; <b>The platform</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The youBot four-Mecanum-wheel platform</h1>
+    <div class="subttl">Adamov &amp; Saipulaev (RJND 2020) &middot; "Influence of dissipative forces &amp; Mecanum-wheel design"</div>
+    <div class="rule"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;margin:2px 0 6px;flex:0 0 auto">
+      <img src="../images_and_plots/MecanumBotPlant.png" alt="youBot Mecanum platform model"
+           style="max-height:200px;max-width:100%;object-fit:contain;border:1px solid var(--grid);border-radius:4px;background:#fff;padding:3px">
+      <div class="tiny" style="color:#6a7686;margin-top:2px">Plant model &mdash; Adamov &amp; Saipulaev (2020), <i>Russian J. Nonlinear Dynamics</i> 16(2):291&ndash;307</div>
+    </div>
+    <div class="cols">
+      <div class="col c55 small">
+        <p>An <b class="key">omnidirectional base</b> with four pairwise-coaxial Mecanum wheels: independent
+          \((V_x,V_y,\dot\psi)\) motion with no steering. Body frame \(OXYZ\) at the geometric centre;
+          heading \(\psi\); CoM offset \((a_X,a_Y)\) from \(O\).</p>
+        <div class="panel gold"><h3>39-D simulation state</h3>
+        <div class="stategrid tiny">
+          <div><span class="idx">1&ndash;3</span> body vel. \(V_x,V_y,\dot\psi\)</div>
+          <div><span class="idx">4</span> heading \(\psi\)</div>
+          <div><span class="idx">5&ndash;8</span> wheel angles \(\theta_{1..4}\)</div>
+          <div><span class="idx">9&ndash;12</span> wheel rates \(\omega_{1..4}\)</div>
+          <div><span class="idx">13&ndash;16</span> <b>roller rates \(\dot\gamma_{1..4}\)</b> (hidden)</div>
+          <div><span class="idx">17&ndash;19</span> adaptive gains \(K_{x,y,\psi}\)</div>
+          <div><span class="idx">20&ndash;21</span> world position \(x_o,y_o\)</div>
+          <div><span class="idx">22&ndash;33</span> LuGre bristles \(z_x,z_y,z_s\)</div>
+          <div style="grid-column:1/3;color:#9b2d30"><span class="idx" style="color:#9b2d30">34&ndash;39</span> super-twist DOB observer + \(\hat\delta\) &mdash; <b>disabled this run</b></div>
+        </div>
+        <p class="tiny" style="margin-top:6px">Roller rates \(\dot\gamma_i\) are simulated but <b class="rd">unmeasurable at deployment</b> &mdash;
+          the PINN's GRU encoder reconstructs them implicitly. States <b>34&ndash;39</b> (super-twist disturbance observer)
+          exist in the model but are <b class="rd">switched off</b> for this generation iteration.</p>
+        </div>
+      </div>
+      <div class="col c45">
+        <table>
+          <tr><th>Sym</th><th>Meaning</th><th>Value</th></tr>
+          <tr><td>\(m,\ m_s\)</td><td>platform / total mass</td><td>30 / 35.6 kg</td></tr>
+          <tr><td>\(I_s\)</td><td>yaw inertia about \(O\)</td><td>4.42 kg·m²</td></tr>
+          <tr><td>\(J_1\)</td><td>wheel spin inertia</td><td>5.87e&minus;3</td></tr>
+          <tr><td>\(R\)</td><td>wheel radius</td><td>0.05 m</td></tr>
+          <tr><td>\(R_d\)</td><td>roller axle dist.</td><td>0.0355 m</td></tr>
+          <tr><td>\(h,\ l\)</td><td>half-length / -width</td><td>0.235 / 0.15 m</td></tr>
+          <tr><td>\(a_X,a_Y\)</td><td>CoM offset</td><td>1.6 / &minus;2.6 cm</td></tr>
+          <tr><td>\(\delta_i\)</td><td>roller axle angle</td><td>\(\pm45^\circ\)</td></tr>
+          <tr><td>\(p_1,p_2\)</td><td>viscous (wheel / roller)</td><td>0.11 / 5.78e&minus;3</td></tr>
+          <tr><td>\(\mu,\chi\)</td><td>friction / contact-spot</td><td><i>identified</i></td></tr>
+        </table>
+        <p class="tiny" style="margin-top:6px;color:#6a7686">Case-1 viscous set; \(\mu,\chi\) are the inverse-ID targets.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 4. O vs X ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Plant &nbsp; / &nbsp; <b>Roller configuration</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Mecanum wheels: <span class="accent">O</span> vs <span class="accent">X</span> configuration</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <p>Each wheel carries rollers skewed by \(\delta_i=\pm45^\circ\) to the wheel plane. The <b class="key">sign
+          pattern</b> of \(\delta_i\) around the four wheels defines the layout:</p>
+        <div class="eqbox" style="text-align:center">
+          O: \(\ \delta=(-,+,+,-)\,45^\circ\) <br/>
+          X: \(\ \delta=(+,-,-,+)\,45^\circ\)
+        </div>
+        <p>This project uses the <b class="g">O-configuration</b> \([-\tfrac\pi4,\tfrac\pi4,\tfrac\pi4,-\tfrac\pi4]\).
+          O vs X swaps which diagonal roller pair points "inward," flipping the sign of the
+          lateral- and yaw-coupling terms in the wheel&harr;body map.</p>
+        <p class="tiny" style="color:#6a7686">Wheel centres \((X_i,Y_i)=(\pm h,\pm l)\); roller axle unit vector
+          \(\hat e_i=(\cos\delta_i,\sin\delta_i)\), rolling direction \(\hat n_i=(-\sin\delta_i,\cos\delta_i)\).</p>
+      </div>
+      <div class="col c55" style="display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/mecanum_X_vs_O.png" alt="X vs O Mecanum configuration"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:3px 0 0">X vs O top &amp; bottom views &mdash; after robohub.org (drive-selection guide)</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 5. JACOBIAN ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Plant &nbsp; / &nbsp; <b>No-slip kinematics</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body eqs">
+    <h1>No-slip kinematics &amp; the wheel Jacobian</h1>
+    <div class="subttl">Ideal rolling: each contact velocity vanishes \(\Rightarrow\) body twist maps to wheel rates</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55">
+        <p class="small">Per-wheel rolling constraint (contact at roller mid-section, O-config \(\tan\delta_i=\pm1\)):</p>
+        <div class="eqbox">$$\dot\theta_i=\tfrac1R\!\left(V_x+V_y\tan\delta_i+\dot\psi\,(X_i\tan\delta_i-Y_i)\right)$$</div>
+        <div class="eqbox">
+          $$\begin{bmatrix}\dot\theta_1\\\dot\theta_2\\\dot\theta_3\\\dot\theta_4\end{bmatrix}
+          =\frac1R\begin{bmatrix}1&-1&-(h{+}l)\\ 1&\;\;1&\;\;(h{+}l)\\ 1&\;\;1&-(h{+}l)\\ 1&-1&\;\;(h{+}l)\end{bmatrix}
+          \begin{bmatrix}V_x\\V_y\\\dot\psi\end{bmatrix}$$
+        </div>
+      </div>
+      <div class="col c45 small">
+        <div class="panel"><h3>Passive roller no-slip relation</h3>
+          $$\dot\varphi_i=\frac{V_Y+X_i\dot\psi}{(R_d-R)\cos\delta_i}$$
+          <p class="tiny">The wheel nulls body-\(x\) slip (lever \(p_y=\pm l\)); the <b class="key">passive roller spin</b>
+            \(\dot\gamma_i\) nulls body-\(y\) slip (lever \(p_x=\pm h\)).</p></div>
+        <div class="panel gold"><h3>Inverse: wheel torques &rarr; body wrench</h3>
+          $$F_p=\Big(\tfrac1R{\textstyle\sum}\tau_i,\ \tfrac1R(-\tau_1{+}\tau_2{+}\tau_3{-}\tau_4),\
+          \tfrac{l+h}{R}(-\tau_1{+}\tau_2{-}\tau_3{+}\tau_4)\Big)$$</div>
+        <p class="tiny" style="color:#6a7686">The full plant departs from this ideal: rollers slip and spin, and the
+          contact point migrates &mdash; the next section.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 6. WHY SLIP/SPIN ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Roller slip &amp; spin &nbsp; / &nbsp; <b>Why include it</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Why model roller slip and spin</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <p>Real Mecanum wheels are <b class="key">discrete</b>: one roller touches the floor at a time, handing off
+          as the wheel turns. The no-slip ideal erases three real effects:</p>
+        <ul>
+          <li><b class="key">Slip velocities</b> at \(P_i\) drive the friction:
+            <span class="tiny">\(V_{PiX}=V_x-\rho_{Yi}\Omega-\dot\varphi_iR+\dot\gamma_i\sin\delta_i(R_d\cos\tilde\varphi-R)-\dots\)</span></li>
+          <li><b class="key">Passive roller DOF</b> \(\dot\gamma_i\): sustained only by contact friction vs drag \(p_2\)
+            (\(J_\text{roller}{=}10^{-6}\)) &mdash; <b>quasi-static</b> (dwell \(\gg\tau_\text{eff}\), lower right).</li>
+          <li><b class="key">Contact migration</b> \(\Delta Y_i=R_d\tan\tilde\varphi_i\tan\delta_i\): a parametric modulation at the roller-passing frequency.</li>
+        </ul>
+        <div class="panel gold"><h3>Why it matters for the twin</h3>
+          <p class="tiny">Wheel/roller dissipation reflects into <b>equivalent body damping</b> on \(V_y,\dot\psi\); the PINN
+            recovers \(\mu,\chi\) from body-frame signals and its GRU reconstructs the hidden \(\dot\gamma_i\).</p></div>
+      </div>
+      <div class="col c55 small" style="display:flex;flex-direction:column;min-width:0;gap:6px">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+          <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/rollerbalance.png" alt="roller-spin torque balance (Mz leads)"></div>
+          <p class="tiny" style="color:#6a7686;text-align:center;margin:1px 0 0">Roller-spin torque balance &mdash; \(M_z\!\cdot\)lever leads; net \(J_\text{eff}\dot\gamma\!\approx\!0\).</p>
+        </div>
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+          <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/dwell.png" alt="roller dwell vs tau_eff"></div>
+          <p class="tiny" style="color:#6a7686;text-align:center;margin:1px 0 0">Roller dwell \(t_\text{dwell}\!\gg\!\tau_\text{eff}\!\approx\!2\,\)ms \(\Rightarrow\) quasi-static slaving.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 7. HANDOFF ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Roller slip &amp; spin &nbsp; / &nbsp; <b>Contact hand-off</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The roller hand-off &mdash; <span class="accent">12 rollers</span> per wheel</h1>
+    <div class="subttl">Our model uses 12 rollers/wheel (the papers use 6) for finer numerical fidelity</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55">
+        <div class="figwrap"><img class="figimg" src="../images_and_plots/handoff.png" alt="roller hand-off sawtooth"></div>
+      </div>
+      <div class="col c45 small">
+        <p>The contacting-roller angle \(\tilde\varphi_i\) ramps within one roller's sector, then jumps at hand-off:</p>
+        <div class="eqbox tiny" style="text-align:center">
+          <b>12 rollers (ours):</b> \(\ \tilde\varphi=\big((\theta+15^\circ)\bmod30^\circ\big)-15^\circ\)<br/>
+          <span style="color:#6a7686">6 rollers (paper): \((\theta+30^\circ)\bmod60^\circ-30^\circ\)</span>
+        </div>
+        <ul>
+          <li><b class="key">12 vs 6:</b> halves the sector (\(\pm15^\circ\)) and <b>doubles</b> the hand-off frequency.</li>
+          <li><b class="key">Solver-safe smoothing:</b> the ideal sawtooth is replaced by a \(C^\infty\)
+            \(\tanh\)-peak \(\big(\arctan\!2(K\sin12\theta,\,K\cos12\theta{+}1)/12,\ K{=}60\big)\) &mdash;
+            no Jacobian discontinuities for the stiff implicit integrator.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 8. PRE-SLIP PROBLEM ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">III &middot; Friction &nbsp; / &nbsp; <b>The pre-slip problem</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The controller drives the plant into <span class="accent">pre-slip</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <p>Under closed-loop adaptive sliding-mode control, roller slip is held <b class="key">below the Stribeck
+          transition</b> &mdash; in the microslip / pre-sliding regime &mdash; over the <b>majority</b> of every trajectory.
+          A concrete dynamic model <em>in that region</em> is therefore not optional.</p>
+        <div class="panel red"><h3>Why static / Coulomb / Adamov fails here</h3>
+          <ul class="tiny" style="margin-left:16px">
+            <li><b>Adamov multicomponent law</b> is derived under <b>gross sliding</b> (every contact element slides) &mdash;
+              that assumption is violated in pre-slip.</li>
+            <li><b>Coulomb</b> is <b>discontinuous at zero slip</b>: direction undefined, magnitude jumps
+              \(f_sN\!\to\!0\); it cannot represent stick, hysteretic pre-sliding displacement, or smooth reversals.</li>
+            <li>The discontinuity injects <b>Jacobian breaks</b> that destabilise the stiff implicit solver.</li>
+          </ul></div>
+        <p class="tiny"><b class="g">Resolution:</b> a LuGre <b>bristle</b> state \(z\) gives a smooth, hysteretic
+          pre-sliding law that <b>recovers Adamov exactly at gross sliding</b> and reduces to LuGre at full stick.</p>
+      </div>
+      <div class="col c45" style="display:flex;flex-direction:column;min-width:0">
+        <div style="position:relative;align-self:center;max-width:100%;line-height:0">
+          <img class="figimg" src="../images_and_plots/lugrefrictionCurvePreslipStribeck.png" alt="LuGre friction curve" style="display:block;max-width:100%;max-height:300px">
+          <span style="position:absolute;left:38%;top:30%;font-family:var(--sans);font-size:11px;font-weight:700;color:var(--gold);line-height:1.05">pre-slip<br><span style="font-weight:400;font-size:9px">(micro-slip)</span></span>
+          <span style="position:absolute;left:61%;top:22%;font-family:var(--sans);font-size:11px;font-weight:700;color:var(--steel)">gross sliding</span>
+          <span style="position:absolute;left:40%;top:50%;width:9%;border-top:2px dashed var(--gold)"></span>
+          <span style="position:absolute;left:59%;top:38%;width:28%;border-top:2px dashed var(--steel)"></span>
+        </div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:6px 0 0;line-height:1.3">LuGre friction curve &mdash; after &Aring;str&ouml;m &amp; Canudas-de-Wit (2008), <i>IEEE Control Systems Mag.</i> 28(6):101&ndash;114; pre-slip / gross-slip regions marked.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 9. LuGre-Adamov model ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">III &middot; Friction &nbsp; / &nbsp; <b>Composite model</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body eqs">
+    <h1>The composite LuGre&ndash;Adamov coupled model</h1>
+    <div class="subttl">Dynamic bristles (LuGre) &times; slip&ndash;spin coupling (Adamov) &times; Hertz&ndash;Mindlin stiffness</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <p style="margin-top:0"><b class="key">Bristle dynamics</b> (linear \(z_x,z_y\) + rotational \(z_\text{rot}\)):</p>
+        <div class="eqbox tiny">$$\dot z_x=V_{px}-\sigma_0\tfrac{V_{\text{eff},xy}}{g_{xy}}z_x,\qquad
+          \dot z_\text{rot}=\omega_z-\sigma_{0,r}\tfrac{V_{\text{eff},mz}}{g_{mz}}z_\text{rot}$$</div>
+        <p class="tiny" style="margin:4px 0"><b class="key">Stribeck capacity</b> (rubber \(\alpha=\tfrac12\)):
+          \(g_{xy}=\big[f_c+(f_s{-}f_c)e^{-(V_{\text{eff},xy}/v_s)^{\alpha}}\big]N\)</p>
+        <p class="tiny" style="margin:4px 0"><b class="key">Slip&ndash;spin coupling</b> (Mindlin annulus ramp \(\mathcal R\)):</p>
+        <div class="eqbox tiny">$$V_{\text{eff},xy}=\|V_p\|+\mathcal R_{xy}\tfrac{8}{3\pi}|\omega_z|a,\quad
+          V_{\text{eff},mz}=\tfrac{16}{3\pi}|\omega_z|+\mathcal R_{mz}\tfrac{5\|V_p\|}{a}$$</div>
+      </div>
+      <div class="col c45 small">
+        <div class="panel gold"><h3>Output force &amp; spin torque</h3>
+          $$F_x=\sigma_0z_x+\sigma_1\dot z_x,\quad M_z=\sigma_{0,r}z_\text{rot}+\sigma_{1,r}\dot z_\text{rot}$$</div>
+        <div class="panel"><h3>Identified parameters</h3>
+          <p class="tiny"><b>\(\mu\)</b> &harr; \(f_c/f_s\) friction family &nbsp;&middot;&nbsp;
+            <b>\(\chi\)</b> &harr; contact-spot scale (Hertz radius \(a=(3NR_\text{roller}/4E^*)^{1/3}\)).
+            Stiffnesses \(\sigma_0{=}8G^*a,\ \sigma_{0,r}{=}\tfrac{16}{3}G^*a^3\) precomputed per wheel.</p></div>
+        <p class="tiny" style="color:var(--green)"><b>Limits recovered:</b> gross sliding \(\to\) Adamov
+          \(F_{ss}=-f_cN\,V_p/(\|V_p\|+\tfrac{8}{3\pi}|\omega_z|a)\); full stick \(\to\) LuGre. \(C^\infty\) throughout.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 9b. CALIBRATION & COUPLING ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">III &middot; Friction &nbsp; / &nbsp; <b>Calibration &amp; coupling</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body eqs">
+    <h1>Calibration, the Mindlin ramp &amp; the slip&ndash;spin budget</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Bristle constants (load-normalised)</h3>
+          <table class="tiny"><tr><th></th><th>\(\sigma_0\) [1/m]</th><th>\(\sigma_1\) [s/m]</th></tr>
+          <tr><td>translation</td><td>1.64&times;10³</td><td>1.6</td></tr>
+          <tr><td>spin</td><td>1.09&times;10³</td><td>1.1</td></tr></table>
+          <p class="tiny">\(F=-N(\sigma_0 z+\sigma_1\dot z+\sigma_2 V_p)\); \(\;M_z=-N\chi^2(\sigma_{0,s}z_s+\sigma_{1,s}\dot z_s+\dots)\) &mdash; spin torque scales with \(\chi^2\).</p></div>
+        <div class="panel gold"><h3>\(\sigma_1\) from a bristle relaxation time</h3>
+          <p class="tiny">\(\sigma_1\) is fixed by an assumed <b>relaxation time</b> \(\tau\approx1\,\)ms via \(\;\sigma_1=\sigma_0\,\tau\):
+            \(1.6=1640\,\tau\) and \(1.1=1090\,\tau\) \(\Rightarrow\) \(\tau\approx0.98\)&ndash;\(1.01\,\)ms (both channels consistent).</p></div>
+      </div>
+      <div class="col c55 small">
+        <div class="panel"><h3>Mindlin slip-annulus ramp &mdash; coupling turns on with slip</h3>
+          $$\mathcal R=1-\Big(1-\tfrac{\lVert z_{xy}\rVert}{\delta^*}\Big)^{2/3},\qquad \delta^*=\mu_s/\sigma_0$$
+          <p class="tiny">As bristle deflection grows (\(\lVert z\rVert\!\to\!\delta^*\)), \(\mathcal R:0\!\to\!1\): at <b>full stick</b> the cross-coupling is off (pure LuGre); approaching <b>gross slide</b> the full Adamov spin&harr;slip coupling switches on (\(C^\infty\)).</p></div>
+        <div class="panel gold"><h3>Coupling divides the friction budget</h3>
+          <p class="tiny">Slip and spin share one Coulomb circle through the effective-slip denominators
+            \(D_{xy}=\lVert V_p\rVert+\tfrac{8}{3\pi}|\omega_z|a\), \(\ D_{mz}=5\lVert V_p\rVert+\tfrac{16}{3\pi}|\omega_z|a\):</p>
+          <p class="tiny">translation-dominant \(\Rightarrow F\!\to\!f_cN,\ M_z\!\to\!0\); &nbsp; spin-dominant \(\Rightarrow F\!\to\!0,\ |M_z|\!\to\!\tfrac{3}{16}f_cN a\). The coupling <b>apportions</b> the finite budget between slip force and spin torque.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 10. CONTROLLER ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">IV &middot; Control &nbsp; / &nbsp; <b>ASMC: VelRef &amp; PosRef</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Adaptive sliding-mode control of the platform</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <ul style="margin-left:16px">
+          <li><b class="g">VelRef</b> (\(\texttt{asmc\_torques\_vel}\)): <b>mixed relative-degree</b> &mdash;
+            degree-1 velocity surfaces on \((V_x,V_y)\), degree-2 heading surface on \(\psi\) (6 of 7 profiles).</li>
+          <li><b class="g">PosRef</b> (\(\texttt{asmc\_torques}\)): degree-2 world-position tracking (ellipse).</li>
+        </ul>
+        <div class="eqbox tiny">\(s_x=V_x-V_x^{d},\ \ s_y=V_y-V_y^{d},\ \ s_\psi=\dot e_\psi+\lambda_\psi e_\psi\)</div>
+        <div class="panel gold"><h3>Augmented mass matrix</h3>
+          $$M_\text{aug}=\begin{bmatrix}\tilde m&0&-ma_Y\\0&\tilde m&ma_X\\-ma_Y&ma_X&I_{\psi,\text{aug}}\end{bmatrix}$$
+          <p class="tiny">\(\tilde m=m_s+4J_1/R^2\); equiv. control inverts \(M_\text{aug}\) (\(\sim\!13\%\) coupling).
+            Gain law \(\dot K_i=\gamma_i\sigma_i b(K_i)-c_i(K_i/K_{\max,i})^3-\text{leak}\), \(K_{\max}=(60,80,100)\).</p></div>
+      </div>
+      <div class="col c55 small" style="display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/controlsplit.png" alt="control torque split per wheel"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:3px 0 0">Per-wheel control split (octagon run): equivalent \(M_\text{eff}\), switching \(M_\text{sw}\), applied \(M_\text{sat}\).</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 11. UUB ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">IV &middot; Control &nbsp; / &nbsp; <b>Stability (UUB)</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body eqs">
+    <h1>Uniform ultimate boundedness of both controllers</h1>
+    <div class="subttl">Velocity-tracking stability note (PoseTrack&nbsp;2) &mdash; disturbance-observer disabled</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <p>On the manifold each surface collapses to the canonical scalar form</p>
+        <div class="eqbox">$$\dot s_i=-\tilde K_i\tanh(s_i/\varepsilon_i)+\tilde d_i,\qquad |\tilde d_i|\le D_i^{\text{eff}}$$</div>
+        <p class="tiny">With \(V_i=\tfrac12 s_i^2+\tfrac{\beta_i}{2\gamma_i}(K_i-K_i^*)^2\), the reaching condition is on the
+          <b>raw</b> gain (the projection \(\beta_i\) cancels):</p>
+        <div class="eqbox" style="text-align:center">$$\boxed{\,K_i^{*}>\dfrac{D_i^{\text{wr}}}{\tanh 1}\approx1.313\,D_i^{\text{wr}}\,}$$</div>
+        <p class="tiny">\(\Rightarrow\) every trajectory enters a ball \(|s_i|\le\varepsilon+O(D/K_{\max})\) in finite time and
+          stays. Cubic push-back + leak keep \(K_i\) bounded.</p>
+      </div>
+      <div class="col c45 small">
+        <div class="panel gold"><h3>Degree-2 yaw surface &amp; gain adaptation</h3>
+          $$s_\psi=\dot e_\psi+\lambda_\psi(e_\psi)\,e_\psi,\qquad \dot s_\psi=-\tilde K_\psi\tanh\tfrac{s_\psi}{\varepsilon_\psi}+\tilde d_\psi$$
+          <p class="tiny">On the manifold \(\dot e_\psi=-\lambda_\psi e_\psi\) (<b>linear damping</b>) &mdash; a biased \(s_\psi\) no longer integrates, so a circle stays a circle (no spiral drift).</p>
+          $$\dot K_\psi=\underbrace{\gamma_\psi\sigma_\psi b(K_\psi)}_{\text{growth}}-\underbrace{c_\psi\big(\tfrac{K_\psi}{K_{\max,\psi}}\big)^{3}}_{\text{cubic pushback}}-\underbrace{\sigma^{*}_\psi(K_\psi-0.95K_{\psi0})\,g}_{\text{linear leak}}$$</div>
+        <div class="panel"><h3>Disturbance headroom (no DOB)</h3>
+          <table class="tiny"><tr><th>axis</th><th>\(K_{\max}\)</th><th>adm. \(D=\tanh1\!\cdot\!K_{\max}\)</th></tr>
+          <tr><td>\(x\)</td><td>60</td><td>45.7 N·m</td></tr>
+          <tr><td>\(y\)</td><td>80</td><td>60.9 N·m</td></tr>
+          <tr><td>\(\psi\)</td><td>100</td><td>76.2 N·m</td></tr></table></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 12. ENVELOPE / CAPS ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>Velocity caps</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>How the caps are set: the <span class="accent">friction circle</span></h1>
+    <div class="subttl">Analytical limits note (AxisVel / AccelEnvelope) &mdash; what bounds the excitation</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <p>Each contact force lives on a circle \(F_\parallel^2+F_\perp^2\le(\mu N_i)^2\):</p>
+        <ul class="tiny" style="margin-left:16px">
+          <li><b class="st">\(F_\parallel\)</b> (axle): wheel traction &mdash; <b>motor-supplied</b>.</li>
+          <li><b class="g">\(F_\perp\)</b> (rolling): roller-spin drag &mdash; <b>velocity-slaved</b>, consumes the circle radially.</li>
+        </ul>
+        <table class="tiny">
+          <tr><th>cap</th><th>mechanism</th><th>value</th></tr>
+          <tr><td>\(V_{x,\text{cap}}\)</td><td>torque / drag (<b class="g">soft</b>)</td><td>4.55 m/s</td></tr>
+          <tr><td>\(V_{y,\text{crit}}\)</td><td>friction circle (<b class="rd">hard</b>)</td><td>0.63 m/s</td></tr>
+          <tr><td>\(\dot\psi_{\max}\)</td><td>\(F_\perp\) fills circle</td><td>3.8 rad/s</td></tr>
+          <tr><td>\(a_{x},a_{y},\ddot\psi\)</td><td>per-wheel at rest</td><td>2.93, 2.86, 9.6</td></tr>
+        </table>
+        <p class="tiny">Anisotropy \(V_{x,\text{cap}}/V_{y,\text{crit}}\approx7\) &mdash; a near-vertical torque wall vs a rounded friction fold. Master envelope &amp; binding-wheel gate at right.</p>
+      </div>
+      <div class="col c55 small">
+        <div class="panel"><h3>Master per-wheel envelope &mdash; Eq. (27)</h3>
+          $$\big(A_\parallel^{+}\vec b\big)_i^{2}+F_{\perp,i}(\vec v)^{2}\le(\mu N_i)^2,\quad i=1\ldots4$$
+          <p class="tiny">\(\vec b=M\dot{\vec v}+C(\dot\psi)\vec v-A_n\vec F_\perp(\vec v)\): the velocity-slaved drag \(F_\perp\) is radial (fixed by \(\vec v\)); the inertial demand sets the traction \(F_\parallel\) (residual).</p></div>
+        <div class="panel gold"><h3>Rear-left binding-wheel gate &mdash; Eqs. (30)&ndash;(32)</h3>
+          $$F_{\perp,3}=\kappa\,(V_y-h\dot\psi),\qquad \kappa=\tfrac{\sqrt2\,p_2}{(R-R_a)^2}=38.9$$
+          $$F_{\parallel,3}=0.354\,(b_x+b_y)-0.918\,b_\Omega$$
+          $$\text{feasible}\iff F_{\parallel,3}^{2}\le(\mu N_3)^2-F_{\perp,3}^{2},\quad \mu N_3=34.8\ \text{N}$$</div>
+        <p class="tiny" style="color:#6a7686">Derived from the <b>no-slip (Model&nbsp;N) reduction</b>; the lightest wheel (\(\mu N_3\)) binds first, collapsing the four-wheel test to a single scalar gate.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 13-19. TRAJECTORIES ============================= -->
+<!-- 13 octagon -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>1 · Octagon</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Octagon &mdash; directional sweep at low load</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">Start&ndash;cruise&ndash;stop body-velocity legs in \(N\) directions
+          (heading held fixed, \(\Omega\equiv0\)); a confined lateral wiggle rides each cruise (\(C^2\) at the edges).</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny">Forward legs spin no rollers \(\Rightarrow F_\perp\approx0\),
+          circle nearly <b>empty</b> (motor-limited). The lateral wiggle injects small \(F_\perp\).</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny"><b>Azimuthal coverage</b> of the force directions at low
+          utilization, with controlled lateral excursions toward the \(V_y\) wall.</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_octagon.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+<!-- 14 long_circle -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>2 · Long circle</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Long circle &mdash; sustained forward rolling</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">Heading-aligned orbit: \(V_x=R\dot\psi,\ V_y=0\), heading sweeps
+          <b>with</b> the tangent. World velocity traces a clean circle &mdash; no drift, no position tracking.</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny">Forward-rolling \(\Rightarrow\) steady \(F_\parallel\),
+          small \(F_\perp\) (only the yaw-lever spin). Low, <b>quasi-static</b> utilization.</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny">Long stationary friction state &mdash; excites the
+          <b>LuGre steady-state</b> (Stribeck) force cleanly; repeatable laps.</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_long_circle.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+<!-- 15 spin_creep -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>3 · Spin-creep</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Spin-creep &mdash; the yaw-rate edge</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">Small constant creep translation \(+\) scheduled <b>high yaw-rate
+          pulses</b>. Low \(|V|\) frees the wheel-speed budget for large \(|\Omega|\).</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny"><b>Spin-dominated:</b> the spin lever \(h\) drives
+          large roller drag \(F_\perp\) that <b>fills the circle radially</b> toward \(\dot\psi_{\max}\approx3.8\) rad/s;
+          \(F_\parallel\) small.</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny">Probes the <b>rotational</b> friction limit; exercises the
+          rotational bristle \(z_\text{rot}\) and spin torque \(M_z\) (the \(\chi\)-sensitive channel).</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_spin_creep.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+<!-- 16 coupled_vomega -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>4 · Coupled V&ndash;&Omega;</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Coupled V&ndash;&Omega; &mdash; rays through the interior</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">Independent \(|V|\) and \(\Omega\) profiles, each held or ramped
+          (const / ramp). The state rides a chosen \((V,\Omega)\) ray through the reachable set.</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny">Mixed: \(F_\parallel\) from speed/acceleration
+          and \(F_\perp\) from spin load the circle along an <b>oblique ray</b> &mdash; the interior coupling.</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny"><b>Decorrelated</b> \(V\)&ndash;\(\Omega\) content; samples
+          combined-motion states the marginal profiles miss.</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_coupled_vomega.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+<!-- 17 spiral_orbit -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>5 · Spiral orbit</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Spiral orbit &mdash; sustained near-boundary</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">Heading-locked geometric spiral, \(V=|\Omega|R(t)\). Three modes:
+          <b>om_const</b> (sweep \(V\)), <b>v_const</b> (sweep \(\Omega\)), <b>iso_accel</b> (hold \(u^*=|\Omega|V\)).</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny">Operates <b>near the envelope edge</b>; iso_accel holds
+          centripetal utilization \(u^*\) constant just inside the cap while \((V,\Omega)\) composition sweeps.</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny">Traces the <b>boundary</b> systematically &mdash; \(V\)-, \(\Omega\)-,
+          and composition-marginals near saturation; unique in the set.</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_spiral_orbit.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+<!-- 18 multisine -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>6 · Multisine</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Multisine &mdash; broadband persistent excitation</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">Zero-mean harmonic sums on \(V_x,V_y,(\Omega)\) at integer harmonics
+          of \(1/T_\text{fund}\) (periodic, bounded CoM). <b>Zippered</b> disjoint combs per channel.</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny"><b>Broadband transient</b> \(F_\parallel\) (acceleration)
+          and \(F_\perp\) (spin) &mdash; scattered, fluctuating load across the circle and across frequency.</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny"><b>Persistent excitation</b> with decorrelated joint
+          \((V_x,V_y,\Omega)\) coverage; excites the LuGre <b>dynamic</b> (bristle) transients across the band.</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_multisine.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+<!-- 19 ellipse -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Trajectories &nbsp; / &nbsp; <b>7 · Ellipse</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Ellipse &mdash; position tracking &amp; the lateral wall</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Motion</h3><p class="tiny">World-<b>position-tracked</b> orbit (the PosRef profile): time-varying
+          speed <em>and</em> curvature. Heading <b>tangent</b> (forward-rich) or <b>fixed/crab</b> (strafing).</p></div>
+        <div class="panel gold"><h3>Friction-circle loading</h3><p class="tiny"><b>Crab</b> mode strafes \(\Rightarrow\) heavy \(F_\perp\),
+          driving toward the hard lateral wall \(V_{y,\text{crit}}\). <b>Tangent</b> mode forward-drives (\(F_\parallel\)).</p></div>
+        <div class="panel green"><h3>Significance</h3><p class="tiny">Keeps the <b>position controller</b> path alive; crab mode
+          probes the lateral friction limit other profiles avoid.</p></div>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/tracking_ellipse.png" alt=""></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 20. SOLVER SELECTION ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Data generation &nbsp; / &nbsp; <b>Solver selection</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Choosing the integrator: <span class="accent">FBDF</span> for the sweep</h1>
+    <div class="subttl">Benchmark (asmc4): which stiff solver yields PINN-grade force / moment labels</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <p class="tiny">The slip&ndash;spin LuGre bristle carries a <b class="key">&ge;500&times; stiffness</b> in its boundary layer (\(\tanh\) smoothing); low-order methods under-resolve it &mdash; the <b>state</b> looks fine while the <b>labels</b> diverge (stiffness order-reduction).</p>
+        <div class="panel gold"><h3>Acceptance criterion</h3>
+          <p class="tiny">Recomputed labels \(F_x,F_y,M_z,M_\text{sat}\) (2 kHz) must sit \(\ge\!10\times\) below the label-interpolation floor:</p>
+          $$\text{margin}=\max_{\text{fam}}\tfrac{\text{err}}{\text{floor}}\le0.1$$
+          <p class="tiny">Finalists re-scored against an independent, higher-order <b>RadauIIA9 @ 1e&minus;12</b> reference (Hairer&ndash;Wanner methodology) &mdash; removes the same-method / thin-gap objections.</p></div>
+        <div class="panel green"><h3>Conclusion</h3>
+          <p class="tiny"><b>FBDF @ 1e&minus;9</b> is chosen for <b>speed</b> &mdash; 232 s vs 283 / 290 s, lowest \(n_f\) &mdash; while <b>clearing every margin</b> on all 7 cases. (TRBDF2, KenCarp47 reject.)</p></div>
+      </div>
+      <div class="col c55 small">
+        <table>
+          <tr><th>solver</th><th>reltol</th><th>margin<br>(1e&minus;10 ref)</th><th>margin<br>(1e&minus;12 ref)</th><th>verdict</th></tr>
+          <tr><td>RadauIIA5</td><td>1e&minus;8</td><td>0.023</td><td>0.062</td><td><span class="gr">&#10003;</span></td></tr>
+          <tr><td>QNDF</td><td>1e&minus;10</td><td>0.062</td><td>0.0093</td><td><span class="gr">&#10003;</span></td></tr>
+          <tr><td><b>FBDF</b></td><td><b>1e&minus;9</b></td><td>0.062</td><td><b>0.045</b></td><td><span class="gr"><b>&#10003; chosen</b></span></td></tr>
+          <tr><td>KenCarp47</td><td>&mdash;</td><td colspan="2" style="text-align:center">best 1.08</td><td><span class="rd">&#10007;</span></td></tr>
+          <tr><td>TRBDF2</td><td>&mdash;</td><td colspan="2" style="text-align:center">best ~594</td><td><span class="rd">&#10007;</span></td></tr>
+        </table>
+        <div style="text-align:center;margin-top:6px"><img src="../images_and_plots/solver_margins.svg" alt="Stage B solver-error margins per case vs RadauIIA9 1e-12 reference" style="max-width:100%;max-height:248px;border:1px solid var(--grid);border-radius:5px;background:#fff"></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 21. DIAGNOSTICS ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Data generation &nbsp; / &nbsp; <b>Diagnostics</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Flagging trajectories unsuitable for PINN training</h1>
+    <div class="subttl">Two checks &rarr; <span class="g">pinn_training_whitelist.txt</span> &amp; the safe training-rate choice</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <div class="panel"><h3>1 &middot; Spectral / chatter screen (per wheel)</h3>
+          <ul class="tiny" style="margin-left:15px">
+            <li><b>util_sat_frac</b> &mdash; friction / actuator budget saturation (context gate).</li>
+            <li><b>ridge_concentration</b> &mdash; energy on roller-ripple harmonics \(h\!\cdot\!f_\text{roll}\) (<span class="gr">good</span>).</li>
+            <li><b>hash_fraction</b> &mdash; PSD energy above a LuGre-aware ceiling (<span class="rd">numerical hash</span>).</li>
+            <li><b>control_chatter_index</b> / <b>msw_force_coherence_hf</b> &mdash; HF switching vs force.</li>
+            <li><b>hf_slip_modulation</b> &mdash; HF force vs \(|V_p|\) (LuGre <span class="gr">rescue</span>) &middot; <b>theta_fold_tightness</b> &mdash; \(\theta\)-periodicity.</li>
+          </ul></div>
+        <div class="panel"><h3>2 &middot; Downsampling / anti-aliasing sensitivity (2 kHz &rarr; 1 / 0.5 kHz)</h3>
+          <p class="tiny">Two modes, opposite failures: <b>anti-aliased decimation</b> (no folding, but genuine HF content lost)
+            vs <b>naive subsampling</b> \(x[::k]\) (HF <b class="rd">folds back</b> in &mdash; phantom aliasing).
+            <b>Flag</b> if band-limited reconstruction error exceeds the interpolation floor (\(\sim2.7\!\times\!10^{-4}\) for \(M_z\))
+            <b>or</b> the chatter verdict <b>flips</b> (naive aliasing manufactures 'hash'). Energy-above-Nyquist = context.</p></div>
+      </div>
+      <div class="col c45 small">
+        <div class="panel red"><h3>Decision logic</h3>
+          <ul class="tiny" style="margin-left:15px">
+            <li><span class="rd">hash</span> (high hash, low coherence, low slip-mod) &rarr; <b>hard reject</b>.</li>
+            <li><span class="g">chatter</span> (coherent ASMC switching) &rarr; <b>keep, flagged</b>.</li>
+            <li><span class="gr">clean</span> (ripple + LuGre only) &rarr; <b>keep</b>.</li>
+            <li>slip-modulation <b>vetoes</b> a hash verdict &mdash; protects stick&ndash;slip.</li>
+          </ul></div>
+        <div class="panel gold"><h3>Failure modes &amp; rate choice</h3>
+          <p class="tiny"><b>chatter</b> (keep-flag) &middot; <b>hash</b> (reject) &middot; <b>ripple / LuGre</b> (keep) &middot;
+            <b>saturation</b> (context). Check 2 sets the <b>safe downsample rate</b> per trajectory.</p></div>
+        <p class="tiny" style="color:#6a7686">Solver fidelity guaranteed upstream (FBDF) &mdash; no physics-residual lane needed.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 22a. DIAGNOSTICS RESULTS — OVERVIEW ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Data generation &nbsp; / &nbsp; <b>Diagnostics results</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Screening the sweep &mdash; four orthogonal gates</h1>
+    <div class="subttl">1,776 trajectories (1,485 production sweep + 291 χ-grid) &middot; μ=0.5, lugre&ndash;adamov, case 1</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c50 small">
+        <div class="panel"><h3>The recorded "noise" has four origins &mdash; two are signal</h3>
+          <ul class="tiny" style="margin-left:15px">
+            <li><span class="gr">roller ripple</span> &mdash; periodic in \(\theta\), \(f_\text{roll}\approx1.91|\omega|\) Hz (the PINN must learn it).</li>
+            <li><span class="gr">LuGre stick&ndash;slip</span> &mdash; bristle oscillation, \(f\approx653|V_p|\) Hz (physical).</li>
+            <li><span class="rd">ASMC chatter</span> &mdash; sliding-mode switching leaking from \(M_\text{sw}\) (coherent, unwanted).</li>
+            <li><span class="rd">numerical hash</span> &mdash; broadband solver noise (incoherent, unwanted).</li>
+          </ul></div>
+      </div>
+      <div class="col c50 small">
+        <div class="panel gold"><h3>Four screens &rarr; one whitelist</h3>
+          <ul class="tiny" style="margin-left:15px">
+            <li><b>Spectral chatter</b> (6 metrics) + <b>M7 burst</b> &mdash; tell the four noises apart.</li>
+            <li><b>χ-identifiability</b> &mdash; is χ recoverable from the observable forces?</li>
+            <li><b>Sampling-rate</b> &mdash; can the PINN train on a coarser grid?</li>
+            <li><b>Tracking / friction-circle</b> &mdash; did the platform achieve the command?</li>
+          </ul>
+          <p class="tiny">Fused by precedence into <span class="g">combined_reco</span> &rarr; the PINN-training whitelist.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 22b. SCREEN 1 — CHATTER ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>1 · Chatter</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Screen 1 &mdash; spectral chatter &amp; the M7 burst flag</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Classifier (6 spectral metrics)</h3>
+          <p class="tiny"><span class="rd">hash</span> = energy above the ceiling, incoherent &amp; not slip-modulated &rarr; reject; <span class="g">chatter</span> = coherent \(M_\text{sw}\) leak &rarr; keep-flagged; else <span class="gr">clean</span>.</p></div>
+        <ul class="tiny" style="margin-left:16px">
+          <li><b class="gr">0 hash</b> across all 5,670 files (3 μ) &mdash; the stiff integration is clean everywhere. 689 chatter, 4,981 clean.</li>
+          <li><b>multisine 100%</b> is a <b class="rd">global-threshold artifact</b> &mdash; commanded broadband \(M_\text{sw}\) is coherent by design, not pathological switching (flagged at every μ).</li>
+          <li><b>spin-creep 20%</b>: low \(|V|\!\Rightarrow\) thin \(\varepsilon\) boundary layer \(\Rightarrow\) high \(K/\varepsilon\) limit-cycle switching (genuine).</li>
+          <li><b>M7 burst</b> (415): 209 give-up bursts (coupled V&ndash;Ω / octagon, degraded tracking) vs 198 spin-creep pulse edges (well-tracked) &mdash; so a burst <b>alone never rejects</b>.</li>
+        </ul>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/diag_chatter.svg" alt="chatter flag rate by profile"></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== 22b-i. SCREEN 1 — ROLLER RIDGE (STFT) ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>1 · Roller ridge</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The roller ridge &mdash; <span class="accent">signal to keep</span> vs <span class="accent">signal destroyed</span></h1>
+    <div class="subttl">Same profile (coupled V&ndash;&Omega;), same channel (\(F_\parallel\) STFT): the ridge-concentration metric \(\rho_\text{ridge}\) separates clean rolling from slip.</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col" style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/stft_coupled_clean.svg" alt="STFT of a clean coupled V-Omega run, sharp roller ridge"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:4px 0 0"><b class="gr">Kept (\(\rho_\text{ridge}{=}0.84\)).</b> Energy rides exactly on \(f_\text{roll}{=}1.91|\omega|\) and its harmonics as the V&ndash;&Omega; ray ramps &mdash; coherent, slip-locked roller ripple the PINN must learn.</p>
+      </div>
+      <div class="col" style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/stft_coupled_reject.svg" alt="STFT of a rejected coupled V-Omega run, ridge destroyed by slip"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:4px 0 0"><b class="rd">Rejected (\(\rho_\text{ridge}{=}0.02\)).</b> Over the friction circle the wheel spins (\(f_\text{roll}\) rising) but <b>slips</b> &mdash; no rolling ridge forms; the give-up burst (\(t\!\approx\!16\,\)s) dumps broadband energy. The signal is gone.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== 22b-ii. SCREEN 1 — ASMC CHATTER ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>1 · ASMC chatter</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>ASMC chatter &mdash; coherent switching, <span class="accent">flagged but kept</span></h1>
+    <div class="subttl">Spin-creep c066: low \(|V|\Rightarrow\) thin \(\varepsilon\) boundary layer \(\Rightarrow\) high \(K/\varepsilon\) limit-cycle switching in \(M_\text{sw}\) &mdash; genuine, not numerical hash.</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col" style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/controlsplit_spincreep_full.svg" alt="spin-creep full 19 s control-torque split, chatter throughout"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:4px 0 0"><b>Full 19 s, all four wheels.</b> The \(M_\text{sw}\) switching band (gold) persists across the whole run; \(M_\text{eq}\) (light) is the smooth backbone. Gold box = the window enlarged at right.</p>
+      </div>
+      <div class="col" style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/controlsplit_spincreep_nearcap.svg" alt="spin-creep 31 Hz limit-cycle switching, 0.4 s zoom"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:4px 0 0"><b class="g">Zoom (0.4 s).</b> A clean, periodic \(\sim\)31 Hz limit cycle &mdash; coherent, not broadband &rarr; <b>keep-flagged</b>, never reject.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== 22b-ii. SCREEN 1 — M7 BURST EXAMPLE ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>1 · M7 burst</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The M7 burst flag &mdash; reject <span class="accent">only</span> when tracking is also lost</h1>
+    <div class="rule"></div>
+    <div class="cols" style="flex:1.75">
+      <div class="col" style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/tracking_octagon_43.svg" alt="octagon c043 tracking — yaw-rate bursts, Vy short of command"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:3px 0 0">Octagon c043 &mdash; uncommanded \(\dot\psi\) excursions and \(V_y\) short of \(-1\): <b class="rd">tracking lost</b>.</p>
+      </div>
+      <div class="col" style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/controlsplit_octagon_43.svg" alt="octagon c043 control-torque split — localized M7 bursts"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:3px 0 0">Localized \(M_\text{sat}\) bursts at the same instants (\(t\!\approx\!13,33\,\)s) &mdash; \(\beta_\text{burst}{=}13.9\).</p>
+      </div>
+    </div>
+    <div class="cols" style="flex:0.9;margin-top:6px">
+      <div class="col small" style="flex:1">
+        <div class="panel"><h3>M7 burstiness</h3>
+          <p class="tiny">15 Hz Butterworth high-pass &rarr; 0.25 s sliding-window RMS &rarr; \(\beta_\text{burst}=\max_\text{win}/(p_{10,\text{win}}+\text{FLOOR})\), FLOOR \(=0.10\) N&middot;m (1% of the 10 N&middot;m cap), max over 4 wheels. Flag if \(\beta_\text{burst}>\tau_\text{burst}{=}10\). Here <b class="rd">13.9</b> <b>&and;</b> lost tracking &rarr; <span class="rd">reject&middot;burst</span>; spin-creep's 66 well-tracked pulse-edge bursts <b>stay</b>.</p></div>
+      </div>
+      <div class="col small" style="flex:1">
+        <div class="panel gold"><h3>Why 15 Hz, why \(p_{10}\)</h3>
+          <p class="tiny">15 Hz \(\approx\) 5&times; the wheel corner \(p_1/(2\pi J_w){=}0.11/(2\pi\!\cdot\!5.87\!\times\!10^{-3})\!\approx\!3.0\) Hz: above it the wheel inertia low-passes torque (no tracking work), below the \(\sim\)29 Hz burst and \(\sim\)77 Hz roller corner. A <b>ratio</b> (multisine's flat HF \(\to\!\approx\!1\)); \(p_{10}\) (not median) stays robust when \(>\)50% of the run is disturbed.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 22c. SCREEN 2 — CHI ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>2 · χ-identifiability</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Screen 2 &mdash; χ is identifiable from the observable forces</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <p>χ enters the forces only through the <b class="key">spin-gated coupling</b> \(c_t=\tfrac{8}{3\pi}|\omega_z|\chi\). Method: 291 matched χ-quads \(\{0,0.002,0.005,0.008\}\), binned by \(|\omega_z|\), regressed on χ controlling for slip.</p>
+        <ul>
+          <li><b class="gr">Recoverable from forces</b>: \(F_\parallel,F_\perp\) swing \(\approx2.3\,\)N (\(\approx7\%\) of \(\sim\!30\,\)N) at high spin &mdash; far above any force-noise floor.</li>
+          <li><b class="rd">Drop \(M_z\)</b>: its \(|\Delta M_z|=0.004\,\)N·m is \(\sim\!1000\times\) smaller <em>and</em> unmeasurable at deployment.</li>
+          <li>The χ-effect <b>rises with \(|\omega_z|\)</b> &mdash; the spin-gated mechanism, confirmed.</li>
+        </ul>
+        <div class="panel"><h3>Stratified binning &mdash; why this way</h3>
+          <p class="tiny">χ acts only via spin, so we <b>bin by contact spin \(|\omega_z|\)</b> and, within each bin, regress each force on χ controlling for slip \((V_{px},V_{py},|V_p|)\) + per-wheel offset. Time-differencing fails: \(\mathrm{RMS}(F_\parallel(\chi){-}F_\parallel(0))\!\approx\!32\,\)N (\(>\!F_\parallel\)) from phase <b>decoherence</b> over 20 s; binning by operating point removes it.</p></div>
+        <p class="tiny" style="color:#6a7686"><b>Why absolute swing, not R²/F:</b> \(\sim\!10^6\) samples/bin make the F-stat meaninglessly "significant"; partial \(R^2_\chi\) is per-channel-variance-relative, so \(M_z\!\propto\!\chi^2\) inflates its \(R^2\) (the "units trap"). Identifiability vs a real noise floor is set by the <b>absolute</b> signal &mdash; \(F_\parallel\)'s 2.3 N wins, \(M_z\)'s 0.004 N·m loses.</p>
+      </div>
+      <div class="col c45"><div class="figwrap"><img class="figimg" src="../images_and_plots/diag_chi.svg" alt="chi-induced force swing"></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 22d. SCREEN 3 — SAMPLING ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>3 · Sampling rate</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Screen 3 &mdash; train at 500 Hz without losing the forces</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <p>Downsample 2000 &rarr; 1000 &rarr; 500 Hz two ways; measure band-limited reconstruction error per force family.</p>
+        <div class="panel"><h3>Naive subsampling vs anti-aliasing</h3>
+          <p class="tiny"><b>Naive</b> = index-slice \(x[::k]\): fast, but content above the new Nyquist <b class="rd">aliases</b> (folds) into the band &mdash; phantom structure. <b>Anti-aliased</b> = low-pass <em>then</em> decimate: nothing folds, but genuine HF is lost. Here they nearly agree (forces carry ~no energy &gt;250 Hz); naive is even marginally better at 1000 Hz (the filter adds slight passband distortion) &mdash; aliasing shows up only in \(M_z\).</p></div>
+        <ul>
+          <li><b class="gr">Forces \(F_\parallel,F_\perp\): 1&ndash;3%</b> at 500 Hz, flat from 1000&rarr;500 across every profile <b>and every μ</b> &rarr; <b>train at 500 Hz</b> (4× cheaper grid).</li>
+          <li>Only <b class="rd">\(M_z\) is rate-sensitive</b> (spin-creep 0.24 at 500 Hz) &mdash; but \(M_z\) is dropped, so it's moot.</li>
+          <li><b>Screen at 2000 Hz</b>: the chatter verdict flips <b>8%</b> for spin-creep at 500 Hz (3-μ pooled; 12.8% at μ=0.5) &mdash; blind above the 250 Hz Nyquist.</li>
+        </ul>
+        <p class="tiny" style="color:#6a7686">Real forces carry almost no energy above 250 Hz (slow envelope + roller ripple \(\le\!86\) Hz), so the pessimistic white-input LuGre bound never bit.</p>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/diag_sampling.svg" alt="recon error at 500 Hz per profile"></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 22e. SCREEN 4 + WHITELIST ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Diagnostics results &nbsp; / &nbsp; <b>4 · Tracking &amp; whitelist</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Screen 4 + the whitelist &mdash; <span class="accent">5,345 / 5,670</span> kept</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <div class="panel"><h3>Tracking / friction-circle gate</h3>
+          <p class="tiny">5,340 tracked / 5 marginal / <b>325 missed</b> (octagon start&ndash;cruise&ndash;<b>stop</b> overshoots + coupled V&ndash;Ω over the friction circle \(\mu N\)). <b>Disjoint from chatter</b> (a railed controller doesn't chatter).</p></div>
+        <div class="panel gold"><h3>combined_reco precedence</h3>
+          <p class="tiny">① hash &rarr; <span class="rd">reject_hash</span> · ② burst <b>∧</b> lost tracking &rarr; <span class="rd">reject_burst</span> · ③ missed &rarr; <span class="rd">reject_missed</span> · else <span class="gr">keep</span> / keep_flagged. A burst must be <b>confirmed by lost tracking</b> &mdash; this keeps spin-creep's 198 pulse bursts.</p></div>
+        <p class="tiny"><b class="gr">keep 4,477 + flagged 868 = 5,345 / 5,670 (94.3%)</b>; reject_burst 209 + reject_missed 116. <b>Flat across μ</b> (94.8 / 94.2 / 93.8% at μ=0.3/0.5/0.8): as μ rises, reject_burst climbs (32→76→101) while reject_missed falls (67→33→16) &mdash; the gates generalise.</p>
+      </div>
+      <div class="col c55"><div class="figwrap"><img class="figimg" src="../images_and_plots/diag_whitelist.svg" alt="combined whitelist by profile"></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 28. PIPELINE FLOWCHART (second-last) ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Pipeline &nbsp; / &nbsp; <b>Plant &rarr; data &rarr; PINN</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>From plant to data generation to PINN training</h1>
+    <div class="rule"></div>
+    <div class="flow">
+      <div class="frow">
+        <div class="fbox julia"><span class="bt">Julia plant</span>39-D ODE: slip&ndash;spin&ndash;LuGre + ASMC</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox proc"><span class="bt">Excitation library</span>profiles.jl &mdash; 7 builders (VelRef / PosRef)</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox proc"><span class="bt">Seeded sweep</span>profile &times; (&mu;, &chi;, friction model) combos</div>
+      </div>
+      <div class="fdown">&darr;</div>
+      <div class="frow">
+        <div class="fbox proc"><span class="bt">Solve</span>FBDF, reltol 1e&minus;9, dtmax 1e&minus;3, 2 kHz grid</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox proc"><span class="bt">Labels (datastore.jl)</span>per-wheel \(F,\,\)slip, controller torques</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox data"><span class="bt">Arrow + JLD2</span>cross-language contract (filename + columns)</div>
+      </div>
+      <div class="fdown">&darr;</div>
+      <div class="frow">
+        <div class="fbox proc"><span class="bt">Diagnostics</span>spectral / chatter + aliasing checks</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox data"><span class="bt">Whitelist</span>pinn_training_whitelist.txt</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox stop"><span class="bt">&#9632; STOP</span>handoff &mdash; Julia ends here</div>
+      </div>
+      <div class="fdown">&darr;</div>
+      <div class="frow">
+        <div class="fbox pinn" style="max-width:760px;min-width:520px"><span class="bt">PyTorch PINN (separate machine)</span>
+          forward dynamics + inverse friction ID (&mu;, &chi;) &middot; GRU encoder reconstructs hidden roller rates
+          \(\dot\gamma_i\) &middot; analytical Newton&ndash;Euler integrator</div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== VI-1. χ-IDENTIFIABILITY (depth) ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Identifiability &nbsp; / &nbsp; <b>χ from the forces</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>χ-identifiability &mdash; <span class="accent">spin-gated</span>, recoverable from the observable forces</h1>
+    <div class="subttl">χ reaches the forces only via the spin&rarr;translation coupling \(c_t=\tfrac{8}{3\pi}|\omega_z|\,\chi\) &mdash; linear in χ, gated by spin. Per-μ, whitelisted matched χ-quads, slip-controlled.</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c50 small">
+        <h3 style="font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin:0 0 4px">χ-induced force swing \(|\Delta F|_\chi\) at high spin (per friction level)</h3>
+        <table><tr><th>μ</th><th>\(F_\parallel\)</th><th>\(F_\perp\)</th></tr>
+          <tr><td>0.3</td><td>1.07 N (10.0%)</td><td>1.60 N (8.4%)</td></tr>
+          <tr><td>0.5</td><td>1.44 N (8.1%)</td><td><b class="gr">2.84 N (9.2%)</b></td></tr>
+          <tr><td>0.8</td><td>1.27 N (3.3%)</td><td>1.20 N (2.6%)</td></tr></table>
+        <ul class="tiny" style="margin:8px 0 0 15px">
+          <li><b class="gr">χ is identifiable</b> &mdash; a ~1&ndash;3 N swing (3&ndash;10% of force RMS) at high spin sits above any realistic noise floor; <b>strongest at μ=0.5 / \(F_\perp\)</b>.</li>
+          <li><b>rel-swing falls as μ rises</b> (\(F_\perp\) 8.4 &rarr; 9.2 &rarr; 2.6%): larger force at high μ, same-order χ effect &rarr; relatively harder to read.</li>
+        </ul>
+      </div>
+      <div class="col c50 small">
+        <h3 style="font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin:0 0 4px">Force-variance share \(\partial R^2_\chi\) vs contact spin \(|\omega_z|\)</h3>
+        <table><tr><th>\(|\omega_z|\) [rad/s]</th><th>const \(C\)</th><th>explicit \(|\omega_z|\)</th><th>χ-swing</th></tr>
+          <tr><td>~1.2 (low)</td><td>0.01</td><td>0.02</td><td>~1 N</td></tr>
+          <tr><td>~6.2</td><td>0.12</td><td>0.16</td><td>~4 N</td></tr>
+          <tr><td>~11.2</td><td>0.26</td><td>0.30</td><td>~6 N</td></tr>
+          <tr><td>~16.2 (high)</td><td>0.42</td><td><b class="gr">0.71</b></td><td>~4&ndash;12 N</td></tr></table>
+        <div class="panel gold" style="margin-top:8px"><h3>Coupled to spin reconstruction</h3>
+          <p class="tiny">χ explains ~0&ndash;2% of force variance at low spin, <b>40&ndash;70% at high spin</b>. A constant \(C\) (blind to \(|\omega_z|\)) recovers only ~⅔. And \(|\omega_z|\) is <b class="rd">~90% hidden roller rate</b> (§ below) &rarr; reading χ needs the encoder/observer to reconstruct contact spin.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== VI-2. μ-IDENTIFIABILITY ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Identifiability &nbsp; / &nbsp; <b>μ from the forces</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>μ-identifiability &mdash; <span class="accent">slip-gated</span>, multiplicative in the forces</h1>
+    <div class="subttl">μ enters multiplicatively, χ modulates it: \(F=\mu\,(A+C\chi)+B\) (LuGre linearization; \(B\) = μ/χ-independent bristle term). Per-wheel \(F/N_i\), binned by signed co-directional slip.</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c50 small">
+        <table><tr><th>regime (\(|V_p|\))</th><th>ch.</th><th>mult</th><th>\(|\Delta F|\) bulk</th><th>high-slip</th></tr>
+          <tr><td><b>pre-slip</b> &lt;0.01</td><td>both</td><td>&mdash;</td><td colspan="2"><b class="rd">μ-blind</b> (bristle)</td></tr>
+          <tr><td rowspan="2"><b>transition</b></td><td>\(F_\parallel\)</td><td>0.37</td><td>2.9 N</td><td>&mdash;</td></tr>
+          <tr><td>\(F_\perp\)</td><td>0.80</td><td>6.2 N</td><td>&mdash;</td></tr>
+          <tr><td rowspan="2"><b>gross</b> ≥0.03</td><td>\(F_\parallel\)</td><td>0.24</td><td>5.5 N</td><td><b class="gr">~28 N</b></td></tr>
+          <tr><td>\(F_\perp\)</td><td>0.96</td><td>6.4 N</td><td><b class="gr">~26 N</b></td></tr></table>
+        <ul class="tiny" style="margin:8px 0 0 15px">
+          <li><b class="gr">Strongly identifiable at high co-directional slip</b> (\(|\Delta F|\!\approx\!26\!-\!29\) N over μ 0.3&rarr;0.8); weak at low slip (large μ-independent intercept).</li>
+          <li><b>\(F_\parallel\)/\(F_\perp\) asymmetry:</b> the drive axis \(F_\parallel\) carries the structural intercept \(B\); the free-roll \(F_\perp\) has \(B\!\approx\!0\) &rarr; the <b>cleaner μ-reader</b>.</li>
+        </ul>
+      </div>
+      <div class="col c50" style="display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/mu_identifiability_gross.png" alt="mu mult-fraction and swing vs co-directional slip"></div>
+        <p class="tiny" style="color:#6a7686;text-align:center;margin:4px 0 0">Within gross slip, multiplicativity is itself co-directional-slip-gated: \(B\)-dominated at small \(|V_\text{cod}|\) (mult ≈ 0.2) &rarr; near-pure multiplicative at large \(|V_\text{cod}|\) (mult ≈ 0.95&ndash;0.98, \(|\Delta F|\) ≈ 26&ndash;29 N).</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== VI-3. THE IDENTIFIABLE TAIL + COVERAGE ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Identifiability &nbsp; / &nbsp; <b>The identifiable tail</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The identifiable regime is a <span class="accent">thin tail</span> &mdash; gate the confidence</h1>
+    <div class="subttl">Slip-regime coverage over 5,345 whitelisted files (1.354 B wheel-samples). Regime on total slip \(|V_p|\) vs Stribeck \(v_\text{str}=0.01\).</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <table><tr><th>regime</th><th>\(|V_p|\) [m/s]</th><th>share</th></tr>
+          <tr><td>pre-slip</td><td>&lt; 0.01</td><td><b>32.3%</b></td></tr>
+          <tr><td>transition</td><td>0.01&ndash;0.03</td><td><b>22.8%</b></td></tr>
+          <tr><td>gross</td><td>≥ 0.03</td><td><b>44.9%</b></td></tr></table>
+        <p class="tiny" style="margin-top:6px">Per μ (gross): 46.4 / 44.7 / 43.5% &mdash; gross shrinks as friction rises (more grip). The grids span every regime &mdash; not regime-starved.</p>
+      </div>
+      <div class="col c55 small">
+        <div class="panel red"><h3>Readable only in the tail of gross slip</h3>
+          <p class="tiny">~45% of data is gross slip, but only <b class="rd">~4.0% (\(F_\parallel\)) / ~4.7% (\(F_\perp\))</b> sits at high co-directional slip \(|V_\text{cod}|\!\ge\!0.15\) where μ is readable (≈60 M samples). Most gross slip is <em>perpendicular</em> free-roll &mdash; the drive axis stays near-clean.</p></div>
+        <div class="panel gold"><h3>Consequence for training</h3>
+          <p class="tiny">The other ~95% is μ-blind by construction (affine-\(B\) bulk). So μ confidence must be <b>gated on \(|V_\text{cod}|\) / saturation</b> (read μ only in the tail) or the high-\(|V_\text{cod}|\) data <b>tail-weighted</b>. χ is thinner still &mdash; it needs high co-directional slip <b>and</b> high spin &rarr; a few-percent intersection.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== VI-4. ROLLER OBSERVABILITY + ANISOTROPY ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Identifiability &nbsp; / &nbsp; <b>Gate variables &amp; anisotropy</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Gate variables are <span class="accent">hidden</span>; the no-slip assumption is <span class="accent">wrong</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c50" style="display:flex;flex-direction:column;min-width:0">
+        <div class="figwrap" style="flex:1;min-height:0"><img class="figimg" src="../images_and_plots/roller_slip_fraction.png" alt="roller share of contact spin and drive/free-roll slip"></div>
+        <table style="margin-top:6px"><tr><th>gate var</th><th>roller share</th></tr>
+          <tr><td>\(\omega_z\) (χ-gate)</td><td><b class="rd">~87% energy / ~90% mag</b></td></tr>
+          <tr><td>\(V_\parallel\) (μ-gate, drive)</td><td><b class="gr">~0.2&ndash;0.4%</b></td></tr>
+          <tr><td>\(V_\perp\) (free-roll)</td><td>~24&ndash;48%</td></tr></table>
+        <p class="tiny" style="color:#6a7686;margin:4px 0 0"><b>χ-gate needs the observer</b> (\(\omega_z\) ~90% hidden roller in every regime); the μ-gate rides on measurables.</p>
+      </div>
+      <div class="col c50 small">
+        <h3 style="font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin:0 0 4px">Force anisotropy \(r=|F_\perp|/|F_\parallel|\)</h3>
+        <table><tr><th>regime</th><th>median \(r\)</th><th>\(r>1\)</th><th>RMS ratio</th></tr>
+          <tr><td>pre-slip</td><td>0.40</td><td>17.1%</td><td>0.52</td></tr>
+          <tr><td>transition</td><td>0.34</td><td>22.5%</td><td>0.54</td></tr>
+          <tr><td>gross</td><td>0.42</td><td>26.9%</td><td>0.66</td></tr>
+          <tr><td><b>ALL</b></td><td><b>0.39</b></td><td><b>22.8%</b></td><td><b>0.62</b></td></tr></table>
+        <div class="panel"><h3>"Force only along the axle" is materially wrong</h3>
+          <p class="tiny">The free-roll force is typically <b>~40%</b> of the drive force, <b>exceeds it in ~23%</b> of samples, and dropping it discards <b>~38% of the force energy</b>. Modelling both channels &mdash; and the composite friction law &mdash; is justified; it is why \(F_\perp\) is a usable (and the cleaner) μ-reader.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ===================== VI-5. FORCE-LAW ADEQUACY + IMPLICATIONS ===================== -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Identifiability &nbsp; / &nbsp; <b>Force law &rarr; PINN head</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Force-law adequacy &amp; <span class="accent">implications for training</span></h1>
+    <div class="subttl">Can \(F=\mu(A+C\chi)+B\) (with \(A,B,C\) functions of slip/spin) serve as the PINN's forward friction head? Form adequacy \(R^2_\text{form}\):</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <table><tr><th>channel</th><th>quad</th><th>full</th><th>gross: low&rarr;high</th></tr>
+          <tr><td>\(F_\perp\) (free-roll)</td><td>0.76&ndash;0.80</td><td>0.71&ndash;0.78</td><td>0.86 &rarr; 0.98</td></tr>
+          <tr><td>\(F_\parallel\) (drive)</td><td>0.26&ndash;0.35</td><td>0.11&ndash;0.16</td><td><b>0.14 &rarr; 0.98</b></td></tr></table>
+        <ul class="tiny" style="margin:8px 0 0 15px">
+          <li><b class="gr">The form is the right backbone, ~½ the force.</b> Pooled \(R^2_\text{form}\!\approx\!0.45\!-\!0.59\); the residual ~½ is the bristle <b>state</b> \(\sigma_1\dot z\) the recurrent encoder must supply.</li>
+          <li><b>\(F_\parallel\) is bimodal:</b> ~98% algebraic in gross drive-slip, only ~14% at low drive-slip &mdash; <b>that</b> is where the SSM is mandatory. \(F_\perp\) is ~75&ndash;80% algebraic everywhere.</li>
+        </ul>
+      </div>
+      <div class="col c55 small">
+        <div class="panel green"><h3>Forward friction head (hand-back to PINN training)</h3>
+          <p style="font-size:14px;text-align:center;margin:4px 0">\(F=\mu\big(A(\text{slip})+C(\text{slip},|\omega_z|)\,\chi\big)+B(\text{slip})\)</p>
+          <p class="tiny">The analytic backbone supplies ~½ the force (most of \(F_\perp\), gross-slip \(F_\parallel\)); an <b>SSM supplies the state-dependent remainder</b> (concentrated in low-drive-slip \(F_\parallel\)); and the χ channel requires <b>reconstructed \(|\omega_z|\)</b>.</p></div>
+        <div class="panel gold"><h3>Gated confidence, both parameters</h3>
+          <p class="tiny">μ̂ read only at high co-directional slip (slip-gated); χ̂ only at high spin <b>and</b> slip (spin-gated, observer-dependent). Both are <b>tail-weighted / confidence-gated</b> &mdash; the affine-\(B\) bulk would otherwise drown the estimate.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Mecanum PINN Digital Twin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 22. CLOSING ============================= -->
+<section class="slide title">
+  <div class="tbar"></div>
+  <div class="twrap">
+    <div class="toprow">
+      <img src="assets/vnit_logo.jpeg" alt="VNIT"/>
+      <div class="inst"><b>Visvesvaraya National Institute of Technology, Nagpur</b>Department of Mechanical Engineering</div>
+    </div>
+    <h1 style="margin-top:54px">What the digital twin <span class="hl">delivers</span></h1>
+    <div class="sub" style="margin-top:20px">
+      A physically-faithful, controller-in-the-loop data generator &mdash; discrete 12-roller slip&ndash;spin geometry,
+      a \(C^\infty\) LuGre&ndash;Adamov friction law valid in pre-slip, UUB-stable adaptive control, and a
+      friction-circle-bounded excitation suite &mdash; producing screened, label-rich trajectories for
+      <b style="color:#fff">forward-dynamics learning</b> and <b style="color:#fff">inverse \((\mu,\chi)\) identification</b>.
+    </div>
+    <div class="meta">
+      <div><span class="ph">Thank you</span> &nbsp;&middot;&nbsp; Questions welcome</div>
+      <div style="text-align:right"><span class="conf">Vishvesh Koranne</span><br/>
+        <span style="color:#8fa3ba">Guide: Prof. Shital S. Chiddarwar &middot; VNIT Nagpur</span></div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

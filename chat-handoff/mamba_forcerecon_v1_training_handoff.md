@@ -1,0 +1,51 @@
+# Handoff — tune hyperparameters & run training for Mecanum_PINN_Mamba_ForceRecon_v1
+
+## 1. Title + lineage
+Take the **Approach-1 force-reconstruction PINN** package
+`code_insights/Mecanum_PINN_Mamba_ForceRecon_v1/` (the user calls it "mamba_force_recon_v1")
+through **light hyperparameter tuning + a training run**. It was just built from scratch
+(successor to `train_GPU_PINN_v14_py`) in the prior chat; this chat trains it. KUKA youBot
+4-Mecanum digital twin, IMECE 2026: Julia 39-D stiff ODE → Arrow → PyTorch PINN.
+
+## 2. Context — components (all under `mecanum_pinn/`, ~15 files, all py_compile-clean)
+- **`physics.py`** — `RobotParams`/geometry; **VERIFIED roller→body rotation** (`Fx=Fpar·cosδ−Fperp·sinδ`, δ=[−π/4,π/4,π/4,−π/4]); **analytical Heun integrator** `forward_integrate` (O(dt³), force sampled at BOTH endpoints) + `ne_rhs` (plant RHS verified vs `run_one.jl:716-722`; `p1=0.11`, Mz dropped, no disturbance). `F_MAX=87.31 N`.
+- **`models.py`** — `SelectiveSSM` (Mamba-lite: FIXED `A=−exp(A_log)` physical 1/s, selective per-channel `Δ(x)` anchored to `T_s`); `ForceHead` (**4-term law**, 10 outputs/wheel); `MecanumForwardModel`; `MecanumInverseModel` (Δ-window); **`mu_readout_residual`** (test-time μ-ID); `set_grad`, `maybe_compile_pinn`.
+- **`losses.py`** — `forward_losses` {grnd, phys}; `inverse_losses` {grnd, cons(monitor), phys}; `ne_residual` (discrete Heun NE residual = physics loss).
+- **`training.py`** — 5-phase schedule (grounding→rampup→overlap→rampdown→**physics-only**), Adam-per-phase + `EarlyStopper`, **L-BFGS** refine, checkpoint I/O (strips `_orig_mod.`).
+- **`data.py`** — Arrow loader (new regex; Fpar/Fperp targets; **500 Hz downsample**; probes); `stratified_split` (by `(profile,combo)`, all μ together → no leakage); `load_regime_split`.
+- **`regime_split.py`** — verbatim port of A2's selection; reads `observer_v1_py/regimes/*.toml` + `diagnostics_combined.csv` + `trajectory_files_run_0p5_main/profiles`. **Dry-run reproduces the design counts exactly** (S1 fold 1548/S2 1579; S3 1098/63/387).
+- **`evaluation.py`** — `evaluate_on_test`; `estimate_mu`; **`evaluate_mu_id`** (μ-ID from F_inv AND F_fwd, val+test).
+- **`stages.py`** — `run_main` (GPU global flags retained from v14: matmul-high, cudnn.benchmark, dynamo, `torch.compile`; regime-split branch). `config.py`, `plotting.py`, `manifest.py`, top-level `train.py`, `smoke_test.py`.
+- **Force law (the core):** `F = μN·softcircle(g_slip·(A + χ·g_spin·C)) + N·g_slip·B + N·D`. μ multiplicative; χ modulates inside (slip-gated bracket, C also spin-gated); B μ/χ-indep slip-gated; D bristle (ungated).
+
+## 3. Purpose / success criterion
+Run `smoke_test.py` (CPU, validates shapes/backward), then **train** (forward→inverse, the
+`both` mode), with a few hyperparameter tweaks. Success = checkpoints + loss-history figures +
+manifest written, and `evaluate_mu_id` reporting `MAE(inv)`, `MAE(fwd)`, `inv-fwd div` on val+test.
+
+## 4. Key design decisions (already made — defend, don't reopen)
+1. **μ-ID is TEST-ONLY** (not a training loss) — `mu_readout_residual` = slip-energy-weighted projection of `(F − N·D − N·g_slip·B)` onto the μ-scaled `(A+χC)` basis. Keeps identifiability an honest emergent property. **χ-ID deferred** (χ is a held input).
+2. **Consistency monitor-only** (`w_cons=0`) — training it clones inverse onto forward, killing μ-agnostic reading + the change-detection divergence.
+3. **Measurable-only inputs** (11/wheel: ω, sin/cos(12θ), Msat, Vx, Vy, ψ̇, +4 embed). μ/χ/forces/hidden-states never inputs.
+4. **Single shared SSM** (no GRU fallback; no slip-net/bristle-net split) — keeps A1 distinct from A2; selectivity already gives multi-timescale.
+5. **Δ anchored to sampling step** `T_s=1/target_hz=2 ms`; A physical (τ ∈ [0.4, 40] ms). Selectivity stays in Δ (Mamba; A fixed).
+6. **Split**: by `(profile,combo)` (internal) OR the **shared regime TOMLs** (S1/S2 excitation 2-fold, S3 χ k-fold) — identical trajectory selection to A2.
+7. Train **500 Hz**; whitelist = `diagnostics_combined.csv` non-`reject` (5,345); **Mz dropped**; roller-frame Fpar/Fperp.
+
+## 5. Open decisions (the actual task)
+- **Hyperparameters to tune** (all in `config.py`): if force-recon underfits (bristle `D` is ~½ the force), raise `shape_hidden` 32→64 first, then `ssm_state_dim` 6→8; `lr=4e-3` and `w_phys_max=1e-1` are the next dials. `seq_len=5`, `k_steps=4`, `inv_window=3`, `embed_dim=4` are reasonable starts. **NaN guard** fires if lr/w_phys too high.
+- **Watch the D caveat:** `(F−D−B)/A` is clean only where D is the *presliding* bristle (decays at high slip). Symptom of trouble = `MAE(fwd)` (forward should recover its own μ) staying high in the high-slip tail.
+- **Run mode:** `both` (forward then inverse). Choose internal split (`profiles`/`mu_values` from config) OR a regime (`regime_toml=observer_v1_py/regimes/S1_train.toml`, then `S2_train`; S3 with `test_chi`).
+- **μ-grid data status:** μ=0.3 files already present in the sweep dir; full {0.3,0.5,0.8} being generated by a parallel session — confirm completeness before a final run.
+
+## 6. Deliverables
+1. Trained checkpoints under `checkpoints_mamba_v1/<run_tag>/` (`forward_*.pth`, `inverse_*.pth`).
+2. Loss-history PNGs (`plot_history`) + `manifest.json` (split provenance).
+3. `evaluate_mu_id` numbers (val + test) — the μ-identifiability result.
+4. A short note of the final hyperparameters + any NaN/underfit fixes applied.
+
+## 7. Conventions to respect
+- **Runs on the WSL2 GPU box** (`~/mecanum_pinn_main/`; torch NOT on Windows). Two GPUs: 24 GB Quadro RTX 6000 (Turing, **no bf16**) → `vram_gb=24` (batch 4096); 6 GB RTX 3060 (Ampere) → `vram_gb=6`. Gotchas: import `pyarrow.feather` first; `torch.load(..., weights_only=False)`.
+- `python smoke_test.py` BEFORE training. Then `python train.py both` (edit `train.py`'s `config_kwargs`).
+- `keep_awake.py` in background for long runs (Modern Standby kills them); **≤8 workers**; deterministic/seeded; static matplotlib only (no interactive widgets); Unicode math in chat (no LaTeX); scratch in `_tmp/`.
+- Whitelist for the **internal** (non-regime) path = a names .txt at `whitelist_path`; the **regime** path uses `diagnostics_combined.csv` directly (already wired).

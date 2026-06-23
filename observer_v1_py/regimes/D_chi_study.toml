@@ -1,0 +1,26 @@
+# =============================================================================
+# Regime D — chi-stratified study.
+# Only the three chi-SWEPT profiles carry chi variation, so chi-observability
+# (and the chi-in-loss physics term) can only be studied here. Uses matched
+# chi-quads (combos present at >= 3 chi values), like chi_identifiability.py.
+# Evaluation bins per-state RMSE by chi AND |omega_z|: expect the chi-sensitive
+# signal to appear only at high spin (spin_creep) per the spin-gating
+# c_t = (8/3pi)|omega_z|chi.
+# =============================================================================
+
+[regime]
+name = "D_chi_study"
+description = "matched chi-quads on the three chi-swept profiles"
+
+[data]
+include_profiles = ["spin_creep", "octagon", "coupled_vomega"]
+chi = [0.0, 0.002, 0.005, 0.008]
+matched_chi_quads_only = true
+min_chi_per_combo = 3
+chi_stratify = true
+per_profile_cap = 0            # keep all matched quads
+
+[train]
+window = 32
+phases = "a1_5phase"          # supervised grounding -> physics ramp-in
+physics_loss = true          # gamma + wheel-balance residuals, chi per-sample
