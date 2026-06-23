@@ -1,0 +1,3 @@
+label,pkg,status,rc,wall_min,run_dir
+S1_train_w32_non_phys_max_norm_ep180,observer_v1_py,FAILED,1,1.90,observer_v1_py/runs/S1_train_w32_non_phys_max_norm_ep180
+S2_train_w32_non_phys_max_norm_ep180,observer_v1_py,FAILED,1,1.90,observer_v1_py/runs/S2_train_w32_non_phys_max_norm_ep180

@@ -1,0 +1,3 @@
+label,pkg,status,rc,wall_min,run_dir,val_loss,epochs,model,window,stride,regime,chi_fold_test,physics_loss,norm_method,params
+S1_train_w32_non_phys_max_norm_b2048,observer_v1_py,ok,0,542.71,observer_v1_py/runs/S1_train_w32_non_phys_max_norm_b2048,0.004711826906052672,100,ssm,32,16,S1_train,-1.0,False,max,6277
+S2_train_w32_non_phys_max_norm_b2048,observer_v1_py,ok,0,543.16,observer_v1_py/runs/S2_train_w32_non_phys_max_norm_b2048,0.005024310312530195,100,ssm,32,16,S2_train,-1.0,False,max,6277

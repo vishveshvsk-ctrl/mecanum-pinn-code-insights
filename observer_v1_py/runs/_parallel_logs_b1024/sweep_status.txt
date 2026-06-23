@@ -1,0 +1,2 @@
+[sweep] 2 min | done 0 failed 2 running 0 queued 0 / 2 to run
+FAILED: S1_train_w32_non_phys_max_norm_b1024, S2_train_w32_non_phys_max_norm_b1024

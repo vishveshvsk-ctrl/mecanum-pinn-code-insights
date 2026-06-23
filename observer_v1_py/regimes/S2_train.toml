@@ -1,0 +1,31 @@
+# =============================================================================
+# Excitation-coverage 2-fold, direction 2: TRAIN on S2, cross-test on S1.
+# Reverse of S1_train.toml — same fold definition, opposite train/test roles.
+# Together the two runs give the full 2-fold cross-subset result.
+# =============================================================================
+
+[regime]
+name = "S2_train"
+description = "train on excitation-fold S2, cross-test on S1"
+
+[data]
+mu = [0.3, 0.5, 0.8]
+chi = [0.005]
+exclude_profiles = ["multisine_50percent_cap", "multisine_75percent_cap"]
+
+[split]
+val_frac = 0.1
+
+[fold]
+train_fold = "S2"
+backbone = ["octagon", "spin_creep", "coupled_vomega"]
+redundant_S1 = ["long_circle", "spiral_orbit"]
+redundant_S2 = ["ellipse"]
+profiles_toml_dir = "trajectory_files_run_0p5_main/profiles"
+redundant_sample_frac = 0.25
+redundant_sample_profiles = ["long_circle", "spiral_orbit"]
+
+[train]
+window = 32
+phases = "a1_5phase"
+physics_loss = false

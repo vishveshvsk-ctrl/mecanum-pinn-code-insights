@@ -1,0 +1,10 @@
+# Winning configuration from the multisine solver ablation (2026-06-12).
+# Source: solver_benchmark/stage{A,B}_results.arrow. Paste into base.toml [solver]
+# manually (this notebook never edits base.toml). No physics constants changed
+# => no profile-TOML regeneration required.
+[solver]
+name        = "FBDF"
+reltol      = 1.0e-9
+dtmax       = 0.001
+maxiters    = 10_000_000
+saveat_rate = 2000

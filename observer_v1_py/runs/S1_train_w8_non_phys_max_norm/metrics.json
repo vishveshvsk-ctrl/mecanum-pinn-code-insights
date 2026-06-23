@@ -1,0 +1,12 @@
+{
+"val_loss": 0.005818604024225902,
+"epochs": 100,
+"model": "ssm",
+"window": 8,
+"stride": 4,
+"regime": "S1_train",
+"chi_fold_test": -1.0,
+"physics_loss": false,
+"norm_method": "max",
+"params": 6277
+}

@@ -1,0 +1,2 @@
+[sweep] 543 min | done 2 failed 0 running 0 queued 0 / 2 to run
+done:   S1_train_w32_non_phys_max_norm_b2048, S2_train_w32_non_phys_max_norm_b2048

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "deck",
+      "runtimeExecutable": "C:\\Users\\vishv\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8753", "--directory", "C:\\Users\\vishv\\OneDrive\\Desktop\\Vishvesh_Data\\VNIT\\mecanum_pinn_head\\code_insights\\presentation"],
+      "port": 8753
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+label,pkg,status,rc,wall_min,run_dir,val_loss,epochs,model,window,stride,regime,chi_fold_test,physics_loss,params
+S1_train_w8,observer_v1_py,skipped,0,,observer_v1_py/runs/S1_train_w8,0.02752503943911782,119,ssm,8,4,S1_train,-1.0,False,6277
+S1_train_w16,observer_v1_py,skipped,0,,observer_v1_py/runs/S1_train_w16,0.021847992784468764,119,ssm,16,8,S1_train,-1.0,False,6277
+S1_train_w32,observer_v1_py,ok,0,375.13,observer_v1_py/runs/S1_train_w32,0.02198779330189739,119,ssm,32,16,S1_train,-1.0,False,6277
+S2_train_w8,observer_v1_py,ok,0,258.99,observer_v1_py/runs/S2_train_w8,0.034140649092891676,119,ssm,8,4,S2_train,-1.0,False,6277
+S2_train_w16,observer_v1_py,ok,0,302.42,observer_v1_py/runs/S2_train_w16,0.02591405825606033,119,ssm,16,8,S2_train,-1.0,False,6277
+S2_train_w32,observer_v1_py,ok,0,273.36,observer_v1_py/runs/S2_train_w32,0.026559184598071234,119,ssm,32,16,S2_train,-1.0,False,6277

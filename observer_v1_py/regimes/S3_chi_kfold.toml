@@ -1,0 +1,39 @@
+# =============================================================================
+# S3 — chi k-fold cross-validation (INDEPENDENT of the S1/S2 excitation folds).
+# Each fold = one chi value: train on 3 chi values, test on the held-out chi.
+# Run 4x, holding out each chi in turn (via --test-chi), to get the full k-fold
+# chi-generalization result: can the observer reconstruct hidden states at an
+# UNSEEN chi?
+#
+# Restricted to the chi-SWEPT profiles (the only ones with chi variation), which
+# are exactly the backbone — so every chi fold is excitation-complete on its own.
+# All mu pooled. multisine / redundant profiles are chi=0.005-only -> excluded.
+#
+#   python observer_v1_py/train_observer.py --regime observer_v1_py/regimes/S3_chi_kfold.toml --test-chi 0.0
+#   ... --test-chi 0.002   ... --test-chi 0.005   ... --test-chi 0.008
+# =============================================================================
+
+[regime]
+name = "S3_chi_kfold"
+description = "chi k-fold CV (fold = chi value) on the chi-swept profiles"
+
+[data]
+mu = [0.3, 0.5, 0.8]
+chi = [0.0, 0.002, 0.005, 0.008]
+include_profiles = ["octagon", "spin_creep", "coupled_vomega"]
+# matched χ-quads only: keep combos present at ALL 4 χ values. This removes the
+# χ=0.005-only combos that otherwise make the 0.005 fold huge — so every χ-fold
+# draws from the SAME combo set and the k folds are balanced.
+matched_chi_quads_only = true
+min_chi_per_combo = 4
+
+[split]
+val_frac = 0.1
+
+[fold]
+chi_fold_test = 0.005     # held-out chi; override per run with --test-chi
+
+[train]
+window = 32
+phases = "a1_5phase"
+physics_loss = false

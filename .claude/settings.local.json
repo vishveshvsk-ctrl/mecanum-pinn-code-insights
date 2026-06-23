@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "PowerShell(headroom --version)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\" -Filter \"conda.exe\" -Recurse -Depth 4 2>$null | Select-Object FullName -First 3)",
+      "mcp__headroom__headroom_compress",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(*)",
+      "PowerShell(*)",
+      "Edit(presentation/**)",
+      "Write(presentation/**)",
+      "Edit(images_and_plots/**)",
+      "Write(images_and_plots/**)",
+      "WebSearch",
+      "WebFetch(domain:arxiv.org)"
+    ],
+    "ask": [
+      "Write(*.sh)",
+      "Write(*.ps1)",
+      "Edit(*.sh)",
+      "Edit(*.ps1)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/Users/vishv/OneDrive/Desktop/Vishvesh_Data/VNIT/mecanum_pinn_head/code_insights/.claude/check_project_scope.py"
+          }
+        ]
+      }
+    ]
+  }
+}

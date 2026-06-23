@@ -1,0 +1,578 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue}
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,columns=fullflexible,
+  breakindent=0pt,xleftmargin=1em,frame=none}
+\newcommand{\Vp}{\vec V_p}
+\newcommand{\half}{\tfrac12}
+\setlength{\parskip}{2pt}
+
+\title{Analytical Velocity / Yaw-Rate Limits, Envelope Geometry, and
+Cross-Axis Coupling of a Mecanum Platform under Steady-State LuGre Friction}
+\author{Mecanum--PINN dynamics notes\\
+\small youBot / slip--spin--LuGre simulator (Julia), \texttt{:lugre adamov coupling}}
+\date{June 5, 2026 \quad(rev.\ acceleration envelope, June 6, 2026)}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+These notes collect the closed-form results derived for the four-wheel Mecanum platform of
+the slip--spin--LuGre simulator. We give (i) the 3-DOF equivalent (augmented) plant model
+the controller and observer act on; (ii) the analytical caps on the longitudinal, lateral, and
+yaw-rate axes and the physically distinct mechanisms that set them; (iii) the structural shape
+of the no-slip / trackable velocity envelope in the translational plane ($\dot\psi=0$); (iv) the
+extension of the caps to a conservative \emph{velocity--acceleration} envelope built per wheel
+on the same friction circle (\S3.4); and (v) the origin and quantification of the cross-axis
+coupling. All quantities use the case-1 parameter set. A Word-compatible equation appendix is
+provided for transcription into the manuscript.
+\end{abstract}
+
+\section{System and notation}
+The platform carries four Mecanum wheels in the O-configuration with roller-axis angles
+\begin{equation}
+\delta=\left(-\tfrac{\pi}{4},\tfrac{\pi}{4},\tfrac{\pi}{4},-\tfrac{\pi}{4}\right),\quad
+\cos\delta_i=\tfrac{1}{\sqrt2}\ \forall i,\quad \cos^2\delta_i=\tfrac12 .
+\end{equation}
+Wheel centres are at $p_x=(h,h,-h,-h)$, $p_y=(l,-l,l,-l)$. The body velocity is
+$\vec v=(V_x,V_y,\dot\psi)$; the centre of mass is offset from the geometric centre by
+$(a_X,a_Y)$. The parameters used throughout are listed in Table~\ref{tab:params}.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{llll@{\hskip 2em}llll}
+\toprule
+Sym & Value & Meaning & & Sym & Value & Meaning\\
+\midrule
+$h$ & 0.235 m & half-length & & $\mu$ & 0.5 & Coulomb coeff.\\
+$l$ & 0.15 m & half-width & & $s=\mu_s/\mu_c$ & 1.1 & stiction ratio\\
+$R$ & 0.05 m & wheel radius & & $v_s$ & 0.01 m/s & Stribeck vel.\\
+$R_a$ & 0.0355 m & roller axle dist. & & $p_1$ & 0.11 & wheel viscous\\
+$R-R_a$ & 0.0145 m & --- & & $p_2$ & $5.78\!\times\!10^{-3}$ & roller viscous\\
+$m$ & 30 kg & body mass & & $\tau_{\max}$ & 10 N m & torque cap\\
+$m_s$ & 35.6 kg & total mass & & $a_X$ & 0.016 m & COM offset (long.)\\
+$N_{tot}=m_s g$ & 349.2 N & total normal & & $a_Y$ & $-0.026$ m & COM offset (lat.)\\
+$J_w$ & $5.87\!\times\!10^{-3}$ & wheel inertia & & $\chi$ & $\{0,..,.008\}$ & contact-spot\\
+\bottomrule
+\end{tabular}
+\caption{Case-1 parameter set (from \texttt{PlatformParams / LuGreParams}).}
+\label{tab:params}
+\end{table}
+
+\paragraph{Contact slip kinematics.} With the integrated roller-spin rate $\dot\gamma_i$ and
+the wheel rate $\omega_i$, the per-contact slip velocities are, at the representative roller
+phase $\tilde\varphi_i\to0$,
+\begin{align}
+V_{px,i}&=V_x-\dot\psi\,p_{y,i}-\omega_i R+\dot\gamma_i\sin\delta_i(R_a-R),\\
+V_{py,i}&=V_y+\dot\psi\,p_{x,i}+\dot\gamma_i\cos\delta_i(R-R_a).
+\end{align}
+The decisive structural fact is that the wheel nulls the body-$x$ slip (its lever is
+$p_y=\pm l$) and the passive roller-spin state $\dot\gamma_i$ nulls the body-$y$ slip (its lever
+is $p_x=\pm h$); the roller inertia $J_{\text{roller}}=10^{-6}$ is driven solely by contact
+friction against the viscous drag $p_2$.
+
+\paragraph{Wheel and roller dynamics (slip retained, for reference).} Away from the no-slip
+reduction of \S2, the per-wheel and per-roller equations of Adamov \& Saipulaev (their Eq.\ 3,
+lines 4--5) are
+\begin{align}
+J_1\ddot\varphi_i&=M_i-p_1\dot\varphi_i-F_{x,i}R,\\
+J_r\ddot\gamma_i&=-p_2\dot\gamma_i-F_{x,i}\sin\delta_i\!\left(R-R_a\cos\tilde\varphi_i\right)
+-F_{y,i}\cos\delta_i\!\left(R_a-R\cos\tilde\varphi_i\right)+\cdots,
+\end{align}
+with the platform rows $(x,y,\psi)$ driven by $\sum_i F_{x,i}$, $\sum_i F_{y,i}$, and
+$\sum_i(F_{y,i}\rho_{Xi}-F_{x,i}\rho_{Yi}+M_{z,i})$. The motor enters only through the wheel
+equation; the roller is \emph{passive} --- $\dot\gamma_i$ is sustained only by contact terms
+against $p_2$. This actuated-wheel / passive-roller asymmetry splits the caps in \S3.
+
+\paragraph{Steady-state friction.} The LuGre/Stribeck steady force per contact is a bounded
+vector aligned with the slip,
+\begin{equation}
+\vec F_i=-N_i\,g_t(\|V_p\|)\,\frac{V_{p,i}}{\|V_{p,i}\|},\quad
+g_t=\mu_c\!\left[1+(s-1)e^{-(\|V_p\|/v_s)^2}\right],
+\end{equation}
+so $\|\vec F_i\|$ ranges from $N_i\mu_s$ (static) down to $N_i\mu_c$ (kinetic): each contact has
+an essentially isotropic friction circle of radius $\sim N_i\mu$.
+
+\paragraph{Roller-frame force decomposition.} Every contact force lives in the plane of its
+roller, so the natural basis is the roller frame --- the axle direction
+$\hat e_i=(\cos\delta_i,\sin\delta_i)$ and the rolling direction
+$\hat n_i=(-\sin\delta_i,\cos\delta_i)$ --- in which
+\begin{equation}
+\vec F_i=F_{\parallel,i}\,\hat e_i+F_{\perp,i}\,\hat n_i,\qquad
+F_{\parallel,i}^2+F_{\perp,i}^2\le(\mu N_i)^2 .
+\label{eq:rollerframe}
+\end{equation}
+The two components have distinct owners. Along the axle the roller cannot roll, so
+$F_\parallel$ is the wheel traction set by the motor (carried with the bearing $p_1$). Along the
+rolling direction the roller spins freely against $p_2$, so $F_\perp=p_2\dot\gamma_i/(R-R_a)$ is
+the roller-sustaining drag, supplied by contact friction because the roller is passive. This is
+the $p_1/p_2$ split made geometric: $F_\parallel\leftrightarrow$ motor,
+$F_\perp\leftrightarrow$ contact. A longitudinal command leaves $F_\perp=0$ and the circle empty
+(a wheel/motor limit); a lateral or yaw command forces $F_\perp\ne0$ and fills it (a
+roller/contact limit).
+
+\section{Equivalent (augmented) plant model}
+The controller and disturbance observer are built on a 3-DOF rigid-body equivalent in which
+the wheel/roller rotational inertias are reflected into the body and the lumped contact
+dissipation is written as equivalent viscous and Coulomb terms. With $\vec v=(V_x,V_y,\dot\psi)$,
+\begin{equation}
+M_{aug}\,\dot{\vec v}+C(\dot\psi)\,\vec v+D_{eq}\,\vec v+\vec f_c(\vec v)=\vec F_p .
+\label{eq:plant}
+\end{equation}
+The augmented mass matrix reflects $J_w$ through the wheel kinematics and keeps the COM coupling,
+\begin{equation}
+M_{aug}=\begin{bmatrix}\tilde m&0&-ma_Y\\0&\tilde m&ma_X\\-ma_Y&ma_X&I_\psi\end{bmatrix},\quad
+\tilde m=m_s+\frac{4J_w}{R^2},\quad I_\psi=I_s+\frac{4(l+h)^2}{R^2}J_w .
+\label{eq:Maug}
+\end{equation}
+The gyroscopic/centrifugal vector (the only translation--yaw coupling once $M_{aug}$ is formed) is
+\begin{equation}
+C(\dot\psi)\,\vec v=\begin{bmatrix}
+-m_s\dot\psi V_y-ma_X\dot\psi^2\\
+m_s\dot\psi V_x-ma_Y\dot\psi^2\\
+m\dot\psi(a_XV_x+a_YV_y)\end{bmatrix}.
+\label{eq:Cv}
+\end{equation}
+
+\paragraph{Equivalent damping from the no-slip (Model N) reduction.} In Adamov \& Saipulaev the
+dissipation lives only in the per-wheel/roller equations --- base--wheel joint $p_1\dot\varphi_i$
+and wheel--roller joint $p_2\dot\gamma_i$ --- and the platform equations carry no explicit body
+damping. Imposing the no-slip constraints $V_{PiX}=V_{PiY}=0$ at $\tilde\varphi_i=0$ and solving,
+\begin{equation}
+\dot\gamma_i=-\frac{V_y+\rho_{Xi}\dot\psi}{\cos\delta_i(R-R_a)},\qquad
+\dot\varphi_i=\frac{1}{R}\!\left[V_x-\rho_{Yi}\dot\psi+(V_y+\rho_{Xi}\dot\psi)\tan\delta_i\right].
+\end{equation}
+With the Rayleigh dissipation $\mathcal F=\half\sum_i(p_1\dot\varphi_i^2+p_2\dot\gamma_i^2)$ the
+equivalent body damping is the Hessian
+$D_{eq}=\sum_i(p_1\nabla\dot\varphi_i\nabla\dot\varphi_i^\top+p_2\nabla\dot\gamma_i\nabla\dot\gamma_i^\top)$,
+which (all off-diagonals cancelling) is
+\begin{equation}
+D_{eq}=\mathrm{diag}\!\left(\underbrace{\tfrac{4p_1}{R^2}}_{d_x},\
+\underbrace{\tfrac{4p_1}{R^2}+\tfrac{8p_2}{(R-R_a)^2}}_{d_y},\
+\underbrace{\tfrac{4p_1(l+h)^2}{R^2}+\tfrac{8p_2h^2}{(R-R_a)^2}}_{d_\psi}\right)\approx\mathrm{diag}(176,396,38).
+\end{equation}
+
+\paragraph{The $p_1/p_2$ split that drives every cap.} Each entry separates into a wheel-joint
+($p_1$) part paid by the motors (at steady state $M_i=F_{Xi}R+p_1\dot\varphi_i$, so bearing drag
+is covered by motor torque and never loads the circle) and a roller-joint ($p_2$) part that must
+be supplied by contact friction because the roller is passive. Consequently every friction-limited
+cap (\S3) is set by the $p_2$ part of its axis, while the $p_1$ part sets the actuator/power
+demand: $V_x$ has no $p_2$ term (motor-limited, large), whereas $V_y$ and $\dot\psi$ are governed
+by their $p_2$ parts (friction-limited, small). The control wrench is the wheel-torque map
+\begin{equation}
+\vec F_p=\left(\tfrac1R\textstyle\sum_i\tau_i,\ \tfrac1R(-\tau_1+\tau_2+\tau_3-\tau_4),\
+\tfrac{l+h}{R}(-\tau_1+\tau_2-\tau_3+\tau_4)\right).
+\end{equation}
+
+\section{Velocity and yaw-rate caps}
+\subsection{Longitudinal cap --- torque/drag limited ($\dot\psi=0$)}
+At constant $V_x$ the rollers need not spin ($\dot\gamma_i=0$, hence $F_{\perp,i}=0$), and a wheel
+rolling at steady speed needs no traction ($F_{\parallel,i}\to0$): the circle is empty. The only
+steady resistance is the bearing torque $p_1\omega_i$, which saturates at $\tau_{\max}$:
+\begin{equation}
+V_{x,cap}=\frac{\tau_{\max}R}{p_1}=\frac{10\times0.05}{0.11}\approx4.55\ \text{m/s}.
+\end{equation}
+This is a \emph{soft} cap: the circle never binds. The transient (maneuver) limit is the
+aggregate friction circle,
+\begin{equation}
+a_{x,\max}=\frac{(\sum_iN_i)\mu}{m_s}=\frac{349.2\times0.5}{35.6}\approx4.9\ \text{m/s}^2 .
+\end{equation}
+
+\subsection{Lateral cap --- friction-circle limited ($\dot\psi=0$)}
+For pure strafe the rollers must spin to null $V_{py,i}$, at
+$\dot\gamma_i=-V_y/(\cos\delta_i(R-R_a))$, so each contact carries the roller-sustaining drag
+\begin{equation}
+F_{\perp,i}=\frac{p_2\dot\gamma_i}{R-R_a}=\frac{\sqrt2\,p_2}{(R-R_a)^2}V_y\quad(\text{along }\hat n_i).
+\end{equation}
+This $F_\perp$ is the same on every wheel and sums to a pure $-y$ drag $2\sqrt2\,F_\perp$. The
+steady balance forces the tractions to supply this in $y$ and nothing net in $x$, which --- by the
+symmetric $\pm$ pattern --- pins $|F_{\parallel,i}|=F_{\perp,i}$ at every wheel. The two roller-frame
+components being equal, each wheel's resultant has magnitude
+\begin{equation}
+\|\vec F_i\|=\sqrt2\,F_{\perp,i}=\frac{2p_2}{(R-R_a)^2}V_y\approx55.0\,V_y\ [\text{N}],
+\end{equation}
+directed along $\pm$body-$x$. Saturation occurs when $\sqrt2 F_{\perp,i}=N_i\mu$; with
+$N_{\min}=N_3\approx69.6$ N the lightest wheel saturates first:
+\begin{align}
+V_{y,crit}&=\frac{N_{\min}\mu(R-R_a)^2}{2p_2}\approx0.63\ \text{m/s},\\
+V_{y,agg}&=\frac{(\sum_iN_i)\mu(R-R_a)^2}{8p_2}\approx0.79\ \text{m/s}.
+\end{align}
+Since $V_{y,crit}\propto\mu$, $V_{y,crit}(\mu)\approx1.265\,\mu=\{0.51,0.63,0.76\}$ m/s for
+$\mu=\{0.4,0.5,0.6\}$ --- the cleanest plant-vs-controller discriminator --- and the Stribeck dip
+places the onset in the hysteretic band $[V_{y,crit},sV_{y,crit}]\approx[0.63,0.70]$ m/s.
+
+\subsection{Yaw-rate cap: the roller-sustaining drag $F_\perp$ fills the circle}
+A pure spin moves each contact tangentially. Its body-$y$ component $\dot\psi\rho_{Xi}=\pm\dot\psi h$
+is rolled out by the passive roller at $|\dot\gamma_i|=\sqrt2 h\dot\psi/(R-R_a)$, costing
+\begin{equation}
+F_{\perp,i}=\frac{p_2\dot\gamma_i}{R-R_a}=\frac{\sqrt2\,p_2h}{(R-R_a)^2}\dot\psi\approx9.1\,\dot\psi\ \text{N},
+\end{equation}
+the same passive force that set $V_{y,crit}$, now driven by the long spin lever $h$. It loads the
+circle directly. The roller-joint dissipation $d_\psi^{(p_2)}=8p_2h^2/(R-R_a)^2\approx12.2$ is the
+power coefficient; the \emph{contact} yaw moment of $F_\perp$ is only
+\begin{equation}
+\sum_iF_{\perp,i}\ell_{\perp,i}=\frac{4p_2h(h-l)}{(R-R_a)^2}\dot\psi\approx2.2\,\dot\psi\ \text{N m},
+\label{eq:yawmoment}
+\end{equation}
+at the short lever $\ell_\perp=(h-l)/\sqrt2$; the rest of $d_\psi^{(p_2)}$ is fed through the wheels
+and never sits on the circle. With the traction headroom
+\begin{equation}
+|F_{\parallel,i}|\le\sqrt{(\mu N_i)^2-F_{\perp,i}^2},
+\label{eq:headroom}
+\end{equation}
+the band collapses as $F_\perp\to\mu N_i$, the lightest wheel pinching first:
+\begin{equation}
+\dot\psi_{\max}=\frac{\mu N_{\min}(R-R_a)^2}{\sqrt2\,p_2h}=\frac{\sqrt2\,V_{y,crit}}{h}\approx3.8\ \text{rad/s}.
+\end{equation}
+The torque-only rate ($\approx19$ rad/s) is never approached.
+
+\subsection{Acceleration headroom and the velocity--acceleration envelope}
+The caps of \S3.1--3.3 are the $\dot{\vec v}=0$ slice of a larger reachable set. To bound transient
+maneuvers we ask, at a velocity $\vec v$ already inside the envelope, how much acceleration
+$\dot{\vec v}$ the contacts can still supply on the \emph{same} friction circle. The roller-frame
+split \eqref{eq:rollerframe} answers it directly: $F_{\perp,i}(\vec v)$ is velocity-slaved and
+consumes the circle radially, while $F_{\parallel,i}$ --- the motor/traction component --- must
+carry the entire inertial demand and lives in whatever headroom remains. Eq.~\eqref{eq:headroom}
+is therefore not just the yaw-cap pinch but a general per-wheel statement.
+
+\paragraph{Per-wheel resolution.} Write the bare-body balance (the contact form of \eqref{eq:Maug},
+forces explicit) with the velocity-known drag moved to the right,
+\begin{equation}
+A_\parallel\,\vec F_\parallel=\underbrace{M\,\dot{\vec v}+C(\dot\psi)\,\vec v-A_n\,\vec F_\perp(\vec v)}_{\textstyle\vec b(\vec v,\dot{\vec v})},
+\label{eq:alloc}
+\end{equation}
+where the allocators carry each wheel's roller-frame force into the body wrench $(F_x,F_y,M_z)$,
+\begin{equation}
+A_\parallel=\begin{bmatrix}\cos\delta_i\\[1pt]\sin\delta_i\\[1pt]\rho_{Xi}\sin\delta_i-\rho_{Yi}\cos\delta_i\end{bmatrix}^{\!\top}_{\!\!i},\quad
+A_n=\begin{bmatrix}-\sin\delta_i\\[1pt]\cos\delta_i\\[1pt]\rho_{Xi}\cos\delta_i+\rho_{Yi}\sin\delta_i\end{bmatrix}^{\!\top}_{\!\!i},
+\end{equation}
+whose moment rows are the roller-frame arms $\ell_{\parallel,i}=\tfrac{h+l}{\sqrt2}\lambda_i$,
+$\ell_{\perp,i}=\tfrac{h-l}{\sqrt2}\nu_i$ of \eqref{eq:arms}. Numerically,
+\begin{equation}
+A_\parallel=\frac{1}{\sqrt2}\!\begin{bmatrix}1&1&1&1\\-1&1&1&-1\\-0.385&0.385&-0.385&0.385\end{bmatrix},\quad
+A_\parallel^{+}=\begin{bmatrix}0.354&-0.354&-0.918\\0.354&0.354&0.918\\0.354&0.354&-0.918\\0.354&-0.354&0.918\end{bmatrix}.
+\end{equation}
+
+\paragraph{Min-norm allocation.} $A_\parallel$ is $3\times4$ with
+$\ker A_\parallel=\tfrac12(1,1,-1,-1)$ --- the front/rear ``squeeze'' that produces zero body
+wrench but loads all four circles equally. The feedforward injects none of it, so we take the
+min-norm allocation $\vec F_\parallel=A_\parallel^{+}\vec b$, which gives the largest envelope; a
+factor of safety enters separately as $\mu N_i\to s\,\mu N_i$, $s\in[0.7,0.8]$, shrinking the
+$F_\perp$ caps and $F_\parallel$ headroom together.
+
+\paragraph{Bare vs.\ augmented mass --- a circle-vs-torque caution.} The contact-force balance
+\eqref{eq:alloc} uses the \emph{bare} body mass $M=\mathrm{diag\text{-}block}(m_s,m_s,I_s)$ with the
+COM coupling, \emph{not} the augmented $M_{aug}$ of \eqref{eq:Maug}. The $4J_w/R^2$ and
+$4(l+h)^2J_w/R^2$ reflections are wheel rotational inertia, spun up by motor torque through the
+wheel equation $J_w\ddot\varphi_i=M_i-p_1\dot\varphi_i-F_{x,i}R$; they load the actuator, not the
+contact. Using $M_{aug}$ here would double-count the wheel inertia onto the circle and spuriously
+shrink the acceleration envelope by $\tilde m/m_s\approx1.26$ on translation and
+$I_\psi/I_s\approx1.31$ on yaw. This is the same $p_1/p_2$ ownership split as \S2, now on the
+inertial side: $F_\parallel$ sees $m_s$; the motor sees $\tilde m$.
+
+\paragraph{The envelope.} The reachable set is the per-wheel headroom law, the acceleration
+generalization of \eqref{eq:headroom},
+\begin{equation}
+\boxed{\;\big(A_\parallel^{+}\vec b\big)_i^2+F_{\perp,i}(\vec v)^2\le(\mu N_i)^2,\qquad i=1\ldots4.\;}
+\label{eq:master}
+\end{equation}
+The velocity-slaved drag fixes $F_\perp$ (radial); the inertial demand sets $F_\parallel$
+(residual); the envelope shrinks to a point as $\vec v$ approaches the velocity caps. The
+drag-relocation vector $\Phi(\vec v)=A_n\vec F_\perp$ is velocity-only and linear,
+\begin{equation}
+\Phi(\vec v)=\Big(0,\ \tfrac{2\sqrt2\,p_2}{(R-R_a)^2}V_y,\ \tfrac{2\sqrt2\,p_2h(h-l)}{(R-R_a)^2}\dot\psi\Big)
+=(0,\ 110.0\,V_y,\ 2.20\,\dot\psi),
+\end{equation}
+its yaw entry exactly the contact yaw moment $2.2\,\dot\psi$ of \eqref{eq:yawmoment} and its lateral
+entry the net strafe drag $2\sqrt2 F_\perp$ of \S3.2 --- the velocity envelope re-entering as the
+affine offset of the acceleration problem.
+
+\paragraph{Acceleration intercepts.} At rest ($\vec v=0$, $F_\perp=0$, the full circle free) the
+pure-axis caps from \eqref{eq:master} are
+\begin{equation}
+a_{x,cap}=2.93,\quad a_{y,cap}=2.86\ \text{m/s}^2,\quad \ddot\psi_{cap}=9.62\ \text{rad/s}^2,
+\end{equation}
+all pinched at the rear-left wheel ($N_{\min}$) and all below the aggregate isotropic value
+$\mu g=4.9$ m/s$^2$, because a single wheel binds first under any feasible allocation. The
+longitudinal intercept is additionally torque-capped (\S3.1).
+
+\paragraph{Binding-wheel reduction (gating form).} Across the operating box the rear-left wheel
+(\#3, $\mu N_3=34.8$ N) is the binding constraint in every pure direction and in most mixed states,
+so the four-wheel test \eqref{eq:master} collapses to a single scalar gate. With
+$\rho_{X,3}=-h$, $\rho_{Y,3}=+l$, and the third row of $A_\parallel^{+}=(0.354,0.354,-0.918)$,
+\begin{align}
+F_{\perp,3}&=\kappa\,(V_y-h\dot\psi),\qquad \kappa=\frac{\sqrt2\,p_2}{(R-R_a)^2}=38.9,\\
+F_{\parallel,3}&=0.354\,(b_x+b_y)-0.918\,b_\Omega,\\
+\text{feasible}&\iff F_{\parallel,3}^2\le(\mu N_3)^2-F_{\perp,3}^2,
+\end{align}
+with $\vec b$ from \eqref{eq:alloc} expanded as
+\begin{align}
+b_x&=m_s a_x-ma_Y\alpha-m_s\dot\psi V_y-ma_X\dot\psi^2,\\
+b_y&=m_s a_y+ma_X\alpha+m_s\dot\psi V_x-ma_Y\dot\psi^2-110.0\,V_y,\\
+b_\Omega&=-ma_Y a_x+ma_X a_y+I_s\alpha+m\dot\psi(a_XV_x+a_YV_y)-2.20\,\dot\psi,
+\end{align}
+($\dot{\vec v}=(a_x,a_y,\alpha)$). Only in the off-axis corners (large $|V_y|$ against opposing
+spin) does the front-left wheel (\#1) bind first; the sampler should carry the \#1 row as a second
+gate there, or fall back to the full \eqref{eq:master}. A coarse 729-node lookup of the maximum
+single-axis acceleration over the velocity grid accompanies these notes for rejection sampling.
+
+\subsection{Out-of-plane load transfer: the bound that sets the operating
+acceleration cap}
+The friction-circle caps of \S3.4 ($a_{cap}\approx2.9$ m/s$^2$) are derived in the
+planar 3-DOF model, where the per-wheel normal loads $N_i$ are \emph{static} (set
+once by weight and the COM offset, Table~\ref{tab:params}). A platform
+accelerating at $a$ redistributes those loads through the out-of-plane pitch/roll
+the planar model omits. For a rigid (suspension-free) body the quasi-static
+per-wheel transfer is
+\begin{equation}
+\Delta N_i=\frac{m\,a\,z_{com}}{4\,d},\qquad
+d=\begin{cases}h&\text{longitudinal}\\ l&\text{lateral,}\end{cases}
+\label{eq:loadtransfer}
+\end{equation}
+with $z_{com}$ the COM height and $2h,2l$ the wheelbase/track. Each contact force
+is \emph{linear} in $N_i$ ($\|\vec F_i\|\le\mu N_i$), so $\Delta N_i/N_i$ is
+exactly the fractional per-wheel force error the planar dataset cannot reproduce.
+The lateral axis binds ($l<h$) and the lightest wheel \#3 ($N_3=69.6$ N, the
+friction-circle binding wheel of \S3.3) is the worst case.
+
+Holding this neglected effect below $5\%$ bounds the operating acceleration. The
+plant carries no $z$-DOF, so $z_{com}$ is a free parameter; for the youBot we take
+$z_{com}=R=0.05$ m (COM at hub height), with $z_{com}=2R$ as a sensitivity:
+\begin{equation}
+a_{5\%}^{lat}=\frac{0.05\cdot4l\,N_3}{m\,z_{com}}=
+\begin{cases}1.39\ \text{m/s}^2 & z_{com}=R,\\[2pt]
+0.70\ \text{m/s}^2 & z_{com}=2R.\end{cases}
+\end{equation}
+\begin{table}[h]\centering\small
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{$z_{com}=R$} & \multicolumn{2}{c}{$z_{com}=2R$}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+$a$ [m/s$^2$] & $\Delta N/\bar N$ & $\Delta N/N_3$ & $\Delta N/\bar N$ & $\Delta N/N_3$\\
+\midrule
+0.5 & 1.4\% & 1.8\% & 2.9\% & 3.6\%\\
+1.0 & 2.9\% & 3.6\% & 5.7\% & 7.2\%\\
+1.5 & 4.3\% & 5.4\% & 8.6\% & 10.8\%\\
+2.0 & 5.7\% & 7.2\% & 11.5\% & 14.4\%\\
+\bottomrule
+\end{tabular}
+\caption{Per-wheel lateral load-transfer fraction \eqref{eq:loadtransfer}
+($\bar N=87.3$ N mean, $N_3=69.6$ N binding wheel).}
+\label{tab:loadtransfer}
+\end{table}
+
+We therefore cap the operating envelope at $a\le1.0$ m/s$^2$, well inside the
+$2.9$ m/s$^2$ friction-circle limit. At $z_{com}=R$ this holds the worst-wheel
+transfer to $3.6\%$ (longitudinal $1.8\%$); at $z_{com}=2R$ it reaches $7.2\%$, so
+$a\le1.0$ is the appropriate, COM-height-aware cap for the youBot's low
+($z_{com}\!\lesssim\!R$) centre of mass. This is the operational guarantee that
+the planar Julia dataset --- and the high-fidelity engine benchmark validating it
+--- never enters a regime where neglected load transfer exceeds the $5\%$
+fidelity budget.
+
+\section{Bounding envelope geometry ($\dot\psi=0$)}
+The trackable-velocity set in the translational plane is neither a rhombus nor an ellipse. Each
+contact enforces an isotropic circle $\|\vec F_i\|\le N_i\mu$; since the slip components are affine
+in $(V_x,V_y)$, each wheel's limit is an ellipse and the feasible set is the intersection of four
+oriented ellipses --- a rounded convex region. The two axes are bounded by different mechanisms ---
+a near-vertical torque-saturation wall in $V_x$, a rounded friction fold in $V_y$ --- breaking the
+$90^\circ$ symmetry an ellipse would require. A compact description is an anisotropic superellipse
+\begin{equation}
+\left|\frac{V_x}{V_{x,cap}}\right|^n+\left|\frac{V_y}{V_{y,crit}}\right|^n=1,\quad1<n<2,\quad
+\frac{V_{x,cap}}{V_{y,crit}}\approx7,
+\end{equation}
+with the diamond-like skeleton ($n\to1$) from the $\pm45^\circ$ roller directions and the rounding
+($n>1$) from the LuGre smoothing. The envelope is three-dimensional: the coupled LuGre--Adamov law
+folds the spin $\omega_{z,i}=\dot\psi$ into the slip measure, so rising $\dot\psi$ eats the
+translational budget and the body is pinched in the combined-motion corners --- the same pinch that
+\S3.4 quantifies on the acceleration side.
+
+\section{Cross-axis coupling}
+\subsection{Coupling channel}
+The off-centre COM makes $M_{aug}$ non-diagonal, so a force residual on one axis leaks into the
+others through the off-diagonal entries of $M_{aug}^{-1}$ (nonzero iff $a_X,a_Y\ne0$). The per-wheel
+yaw contribution is $M_{z,i}=p_{x,i}F_{y,i}-p_{y,i}F_{x,i}+M_{z,i}^{spin}$.
+
+\subsection{Lateral axis (dominant)}
+In the roller frame $M_{z,i}=F_{\parallel,i}\ell_{\parallel,i}+F_{\perp,i}\ell_{\perp,i}$ with
+\begin{equation}
+\ell_{\parallel,i}=\frac{h+l}{\sqrt2}\lambda_i\ (\lambda=(-,+,-,+)),\qquad
+\ell_{\perp,i}=\frac{h-l}{\sqrt2}\nu_i\ (\nu=(+,+,-,-)),
+\label{eq:arms}
+\end{equation}
+so the traction moment acts at the long arm $0.272$ m and the roller-drag moment at the short arm
+$0.060$ m --- a $4.5\times$ leverage advantage for $F_\parallel$. The moment is exactly zero up to
+and including $V_{y,crit}$ (load-independent symmetric forces) and ramps from zero only above it,
+\begin{equation}
+M_z^{lat}=\mu\,mg\,a_X\frac{l}{h}\approx1.50\ \text{N m}\ \longrightarrow\ \mu\,mg\,a_X\frac{h+l}{\sqrt2\,h}\approx2.7\ \text{N m},
+\end{equation}
+as the roller-spin cap clips the weak-lever cancelling term. This routes the front--rear $a_X$
+imbalance through $F_\parallel$, which --- via $M_{aug}^{-1}$ --- contaminates $V_x$.
+
+\subsection{Longitudinal axis (present but subdominant)}
+Longitudinal drive needs no roller spin ($F_{\perp,i}=0$), so each saturated force lies along its
+axle at the full traction arm with no cancelling term:
+\begin{equation}
+M_z^{lon}=\mu\,mg\,a_Y\frac{h+l}{\sqrt2\,l}\approx6.94\ \text{N m}.
+\end{equation}
+Its bare magnitude is the largest of the three, yet the axis is benign operationally: $V_x$
+friction-saturates only transiently, the circle is otherwise empty, and the kick is self-limiting.
+
+\subsection{Yaw-rate axis: centrifugal creep coupling (benign)}
+The centrifugal terms in \eqref{eq:Cv} are a body force
+$\vec F_{cf}=m\dot\psi^2(a_X,a_Y)$, $\|\vec F_{cf}\|=m|a|\dot\psi^2$, $|a|=0.031$ m, held by the
+translational friction until $\dot\psi_{cf}=\sqrt{\mu N_{tot}/(m|a|)}\approx14$ rad/s. Because
+$\dot\psi_{cf}\gg\dot\psi_{\max}$ the platform cannot reach centrifugal gross slip. Below the cap
+the coupling is a small steady creep $v_{creep}\approx m|a|\dot\psi^2/d_t\approx1.2$ cm/s at
+$\dot\psi\approx2$. Yaw remains the most benign axis.
+
+\subsection{Role of the COM offset: imperfect pitchfork}
+Every coupling moment is $\propto$ the COM offset and vanishes for $a_X=a_Y=0$; simultaneously
+$M_{aug}$ becomes diagonal and the leakage channel closes. With a centred COM the strafe-saturation
+is symmetric and the relevant bifurcation is a pitchfork; the COM offset is the imperfection
+parameter that unfolds it into a saddle-node, preselecting the yaw direction.
+
+\section{Post-cap behaviour: yaw asymmetry and cross-axis leak}
+\subsection{Directional (CW/CCW) asymmetry of the yaw cap}
+Every friction drag is even in $\dot\psi$; the COM offset supplies the only odd-in-$\dot\psi$
+coupling, via (i) a fixed centripetal $-m(a_X,a_Y)\dot\psi^2$ added to a sign-flipping tangential
+demand $\pm\mu N_i\hat t_i$, which add at one spin sense and cancel at the other, and (ii) the
+gyroscopic yaw term $m\dot\psi|a|(\hat a\cdot\vec V)$. The asymmetry scales as
+$m|a|\dot\psi^2/(4\mu N_{\min})\approx10\%$ at $\dot\psi\approx4$ and vanishes at $a_X=a_Y=0$.
+
+\subsection{Why exceeding $V_{y,crit}$ bleeds into $\dot\psi$ and $V_x$}
+$V_{x,cap}$ is soft (torque/drag): past it the circle stays empty and the platform merely lags,
+on-axis and quiet. $V_{y,crit}$ is a hard friction-circle wall: past it the passive roller can no
+longer sustain $F_\perp$, $V_{py,i}$ grows, and the saturated force caps and rotates. The load
+spread breaks symmetry, the yaw moment climbs from $0$ at the cap toward $1.5$--$2.7$ N m, forcing
+$\dot\psi\ne0$; the induced $\dot\psi$ re-enters $V_x$ through the Coriolis $-m_s\dot\psi V_y$ and the
+$-ma_Y$ off-diagonal. With $d_y$ lost,
+\begin{equation}
+\tilde m\dot V_x=-d_xV_x+m_s\dot\psi V_y,\qquad \tilde m\dot V_y=-\underbrace{d_yV_y}_{\to0}-m_s\dot\psi V_x,
+\end{equation}
+so the skew $m_s\dot\psi$ whirls $V_y$ into $V_x$ and back, a bounded-then-diverging lateral/yaw
+oscillation. A longitudinal over-command does none of this --- the asymmetry is the soft-vs-hard cap
+distinction.
+
+\subsection{Exceeding $\dot\psi_{\max}$: leak into $V_x$ and $V_y$}
+The dual of \S6.2. Past $\dot\psi_{\max}$ the lightest wheel cannot supply $F_\perp$ and slides along
+$\hat n$, delivering only $\mu N_{\min}$; the symmetric balance breaks and a net body force appears,
+\begin{equation}
+\vec F_{leak}\approx\Delta F\left(\tfrac{1}{\sqrt2},-\tfrac{1}{\sqrt2}\right),\quad\Delta F=F_\perp^{dem}-\mu N_{\min},
+\end{equation}
+(forward-right for $\dot\psi>0$; flips for $\dot\psi<0$). Since $F_\parallel\to0$ at the saturated
+wheels, the traction that drove the spin vanishes ($\dot\psi$ plateaus) and the drift is
+uncorrectable at the very wheels producing it --- the likely origin of the observer's actuator
+saturation at heading-ramp onset, motivating a per-axis split $\omega_\psi\gg\omega_{xy}$.
+
+\section{Summary of closed-form results}
+\begin{table}[h]\centering\small
+\begin{tabular}{lll}
+\toprule
+Quantity & Expression & Value (case 1, $\mu=0.5$)\\
+\midrule
+Longitudinal speed cap & $\tau_{\max}R/p_1$ & 4.55 m/s\\
+Longitudinal accel.\ cap (aggregate) & $(\sum N_i)\mu/m_s$ & 4.9 m/s$^2$\\
+Lateral onset (1st wheel) & $N_{\min}\mu(R-R_a)^2/(2p_2)$ & 0.63 m/s\\
+Lateral full saturation & $(\sum N_i)\mu(R-R_a)^2/(8p_2)$ & 0.79 m/s\\
+Yaw-rate cap ($F_\perp$ fills circle) & $N_{\min}\mu(R-R_a)^2/(\sqrt2 p_2h)$ & $\approx$ 3.8 rad/s\\
+\midrule
+\multicolumn{3}{l}{\emph{Velocity--acceleration envelope (\S3.4, per-wheel, bare mass, RL-bound)}}\\
+Long.\ accel.\ cap (per-wheel) & $(\mu N_3)$ free at $\vec v=0$ & 2.93 m/s$^2$\\
+Lateral accel.\ cap (per-wheel) & $(\mu N_3)$ free at $\vec v=0$ & 2.86 m/s$^2$\\
+Yaw accel.\ cap (per-wheel) & $(\mu N_3)$ free at $\vec v=0$ & 9.62 rad/s$^2$\\
+Drag-relocation $\Phi(\vec v)$ & $(0,\,2\sqrt2 p_2 V_y/(R\!-\!R_a)^2,\,2.2\dot\psi)$ & $(0,110V_y,2.2\dot\psi)$\\
+Master envelope & $(A_\parallel^{+}\vec b)_i^2+F_{\perp,i}^2\le(\mu N_i)^2$ & ---\\
+\midrule
+\multicolumn{3}{l}{\emph{Out-of-plane load-transfer bound (\S3.5)}}\\
+Per-wheel load transfer & $m\,a\,z_{com}/(4d)$ & $d=h$ long., $l$ lat.\\
+Operating accel.\ cap ($<$5\% transfer) & $0.05\cdot4lN_3/(m z_{com})$ & 1.0 m/s$^2$ ($z_{com}\!=\!R$)\\
+\midrule
+Contact yaw moment of $F_\perp$ & $4p_2h(h-l)/(R-R_a)^2$ & $\approx$ 2.2 N m s\\
+CW/CCW cap asymmetry & $m|a|\dot\psi^2/(4\mu N_{\min})$ & $\approx$ 10\%\\
+Yaw centrifugal threshold & $\sqrt{\mu N_{tot}/(m|a|)}$ & 14 rad/s\\
+Anisotropy ratio & $V_{x,cap}/V_{y,crit}$ & $\approx$ 7\\
+Sustained yaw moment (lat.) & ramp $0\to\mu mg a_X(h+l)/(\sqrt2 h)$ & 0 -- 1.5--2.7 N m\\
+Transient yaw moment (lon.) & $\mu mg a_Y(h+l)/(\sqrt2 l)$ & 6.94 N m\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\appendix
+\section{Equation appendix --- Word-compatible \LaTeX{} commands}
+Each block is the linear \LaTeX{} string for the corresponding numbered equation, restricted to
+commands accepted by the Word equation editor. Concatenate split lines before pasting. Entries
+(E49)--(E55) are the velocity--acceleration envelope of \S3.4.
+
+\begin{lstlisting}
+(E13) Lateral velocity cap (onset, lightest wheel):
+V_{y,crit} = \frac{ N_{min}\, \mu\, (R - R_a)^2 }{ 2 p_2 }
+
+(E33) Yaw-rate cap (roller-sustaining drag F_perp fills the circle):
+F_{\perp,i} = \frac{ \sqrt{2}\, p_2 h }{ (R - R_a)^2 }\, \dot{\psi}
+\dot{\psi}_{max} = \frac{ \mu N_{min} (R - R_a)^2 }{ \sqrt{2}\, p_2 h } = \frac{ \sqrt{2}\, V_{y,crit} }{ h }
+| F_{\parallel,i} | \le \sqrt{ ( \mu N_i )^2 - F_{\perp,i}^2 }   (traction headroom)
+
+(E45) Roller-frame force decomposition (axle e_i, rolling dir n_i; friction circle):
+\vec{F}_i = F_{\parallel,i}\, \hat{e}_i + F_{\perp,i}\, \hat{n}_i,\quad
+\hat{e}_i = (\cos\delta_i, \sin\delta_i),\ \hat{n}_i = (-\sin\delta_i, \cos\delta_i)
+F_{\parallel,i}^2 + F_{\perp,i}^2 \le ( \mu N_i )^2
+F_{\perp,i} = p_2\, \dot{\gamma}_i / (R - R_a)
+
+(E46) Roller-frame yaw arms (traction lever vs roller-drag lever):
+\ell_{\parallel,i} = \frac{h+l}{\sqrt{2}}\, \lambda_i,\quad \lambda = (-,+,-,+)
+\ell_{\perp,i} = \frac{h-l}{\sqrt{2}}\, \nu_i,\quad \nu = (+,+,-,-)
+
+================  velocity-acceleration envelope (Sec 3.4)  ================
+
+(E49) Per-wheel acceleration headroom (master velocity-acceleration envelope):
+( A_\parallel^{+}\, \vec{b} )_i^2 + F_{\perp,i}(\vec{v})^2 \le ( \mu N_i )^2,\quad i = 1..4
+\vec{b}(\vec{v},\dot{\vec{v}}) = M\, \dot{\vec{v}} + C(\dot{\psi})\, \vec{v} - A_n\, \vec{F}_\perp(\vec{v})
+
+(E50) Free-component (traction) allocator and its min-norm pseudo-inverse:
+A_\parallel = \begin{bmatrix} \cos\delta_i \\ \sin\delta_i \\ \rho_{Xi}\sin\delta_i - \rho_{Yi}\cos\delta_i \end{bmatrix}_i^{\top}
+\ker A_\parallel = \tfrac{1}{2}(1,1,-1,-1),\qquad \vec{F}_\parallel = A_\parallel^{+}\, \vec{b}
+
+(E51) Drag-relocation operator and closed-form offset (velocity-only, linear):
+A_n = \begin{bmatrix} -\sin\delta_i \\ \cos\delta_i \\ \rho_{Xi}\cos\delta_i + \rho_{Yi}\sin\delta_i \end{bmatrix}_i^{\top}
+\Phi(\vec{v}) = A_n \vec{F}_\perp = \left( 0,\ \frac{2\sqrt{2}\, p_2}{(R-R_a)^2} V_y,\ \frac{2\sqrt{2}\, p_2 h (h-l)}{(R-R_a)^2} \dot{\psi} \right)
+
+(E52) Bare-vs-augmented mass caution (circle uses bare M; motor sees M_aug):
+A_\parallel \vec{F}_\parallel = M\, \dot{\vec{v}} + \ldots,\qquad M = \mathrm{diag\text{-}block}(m_s, m_s, I_s)\ \text{with COM coupling}
+\text{wheel inertia } 4 J_w / R^2 \to \text{motor torque (E4), NOT contact circle}
+
+(E53) Acceleration intercepts from rest (v = 0, F_perp = 0, full circle free):
+a_{x,cap} = 2.93,\quad a_{y,cap} = 2.86\ \mathrm{m/s^2},\quad \ddot{\psi}_{cap} = 9.62\ \mathrm{rad/s^2}
+\text{all pinched at } N_{min}\ (\text{rear-left}),\quad < \mu g = 4.9\ \mathrm{m/s^2}\ (\text{aggregate})
+
+(E54) Rear-left (#3) binding-wheel scalar gate:
+\kappa = \frac{\sqrt{2}\, p_2}{(R - R_a)^2} = 38.9
+F_{\perp,3} = \kappa ( V_y - h\, \dot{\psi} )
+F_{\parallel,3} = 0.354 ( b_x + b_y ) - 0.918\, b_\Omega
+\text{feasible} \iff F_{\parallel,3}^2 \le ( \mu N_3 )^2 - F_{\perp,3}^2,\quad \mu N_3 = 34.8
+
+(E55) Demand vector components b(v, vdot) for the gate (vdot = (a_x, a_y, alpha)):
+b_x = m_s a_x - m a_Y \alpha - m_s \dot{\psi} V_y - m a_X \dot{\psi}^2
+b_y = m_s a_y + m a_X \alpha + m_s \dot{\psi} V_x - m a_Y \dot{\psi}^2 - 110.0\, V_y
+b_\Omega = -m a_Y a_x + m a_X a_y + I_s \alpha + m \dot{\psi} ( a_X V_x + a_Y V_y ) - 2.20\, \dot{\psi}
+
+(E56) Factor of safety (applied to the whole circle, both components):
+\mu N_i \to s\, \mu N_i,\quad s \in [0.7, 0.8]
+
+(E57) Out-of-plane per-wheel load transfer (sets the a <= 1.0 m/s^2 operating cap):
+\Delta N_i = \frac{ m\, a\, z_{com} }{ 4 d },\quad d = h\ (long.)\ |\ l\ (lat.)
+a_{5\%}^{lat} = \frac{ 0.05 \cdot 4 l N_3 }{ m\, z_{com} } = 1.39\ (z=R)\ |\ 0.70\ (z=2R)\ \mathrm{m/s^2}
+\end{lstlisting}
+
+\paragraph{Reference.}
+Adamov, B.\,I., \& Saipulaev, G.\,R. (2020). Research on the dynamics of an omnidirectional
+platform taking into account real design of mecanum wheels (as exemplified by KUKA youBot).
+\emph{Russian Journal of Nonlinear Dynamics}, 16(2), 291--307.
+
+\end{document}
