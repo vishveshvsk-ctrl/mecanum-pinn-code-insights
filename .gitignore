@@ -35,6 +35,7 @@ __pycache__/
 _tmp/
 _nb_read_eval/
 .headroom/
+kimi_start_prompt.txt
 
 # --- Logs, DBs, process output ------------------------------------------
 *.log
