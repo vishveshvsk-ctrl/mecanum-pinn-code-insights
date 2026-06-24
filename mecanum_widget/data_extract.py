@@ -47,7 +47,7 @@ def resolve_repo_root(start: Path | None = None) -> Path:
 
 
 def resolve_data_dir() -> Path:
-    """Return the authoritative simulation-data directory.
+    r"""Return the authoritative simulation-data directory.
 
     Order of precedence:
       1. MECANUM_DATA_DIR environment variable (absolute path).
