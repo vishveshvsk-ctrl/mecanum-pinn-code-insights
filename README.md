@@ -13,6 +13,10 @@ high-fidelity ODE simulator  ──►  Arrow files  ──►  PyTorch PINN
 
 The PINN has two jobs: learn the **forward dynamics** (per-wheel roller-frame forces), and recover friction parameters (`μ`, `χ`) by inverse identification. The Julia simulator manufactures richly-exciting, physically-valid trajectory data with ground-truth labels.
 
+## Presentation deck
+
+[View the IMECE 2026 slide deck](https://vishveshvsk-ctrl.github.io/mecanum-pinn-code-insights/) (scrollable PDF, hosted on GitHub Pages).
+
 ---
 
 ## Repository layout
