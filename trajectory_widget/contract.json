@@ -1,0 +1,37 @@
+{
+  "required_columns": [
+    "time",
+    "Xo",
+    "Yo",
+    "psi",
+    "Vx_des",
+    "Vy_des",
+    "psi_des",
+    "omega_des"
+  ],
+  "sample_file": "/mnt/c/Users/vishv/OneDrive/Desktop/Vishvesh_Data/VNIT/mecanum_pinn_head/data/Simulation_Data_MecanumSlipSpin_LugreAdamov/coupled_vomega_c001_mu_0.3_case1_lugre_adamov_chi_0.000.arrow",
+  "sample_meta": {
+    "profile": "coupled_vomega",
+    "combo": 1,
+    "mu": 0.3,
+    "chi": 0.0
+  },
+  "row_count": 44022,
+  "time_range": {
+    "min": 0.0,
+    "max": 22.0
+  },
+  "geometry": {
+    "R": 0.05,
+    "Ra": 0.0355,
+    "h": 0.235,
+    "l": 0.15,
+    "chassis_length_x": 0.47,
+    "chassis_width_y": 0.3,
+    "_fallback": true
+  },
+  "reference_path": {
+    "stored_posref": false,
+    "notes": "World-frame reference XY is NOT stored for VelRef profiles; it must be reconstructed by integrating desired body velocity. Exception: ellipse (PosRef) provides xo_des/yo_des and can be used directly."
+  }
+}
