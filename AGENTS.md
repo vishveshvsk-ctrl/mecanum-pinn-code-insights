@@ -75,3 +75,28 @@ Each run writes a **JLD2 sidecar** with full state, params, ASMC config, `cfg`, 
 | Per-solve timeout | 300 s |
 | DOB | super-twisting, yaw-only (`omega_o_psi = 6π`, `k1_psi = 15`, `k2_psi = 80`) |
 | Training rate | 500 Hz; chatter screen at 2000 Hz |
+
+---
+
+## 6. Windows / WSL live-data execution model
+
+The git working directory (`/home/vishveshvsk07/mecanum-pinn-code-insights`) is **not** the live data location. Because the large simulation dataset is kept in only one place, the authoritative runtime tree is the Windows-synced folder mounted under WSL:
+
+```
+/mnt/c/Users/vishv/OneDrive/Desktop/Vishvesh_Data/VNIT/mecanum_pinn_head/code_insights/
+```
+
+The project root is documented in [`PROJECT_LAYOUT.md`](PROJECT_LAYOUT.md):
+
+```
+C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\
+```
+
+### Hard rules for live runs
+
+1. **Live status checks** — always read from the `/mnt/c/.../code_insights/` counterpart, never from the git working directory. Relevant files include `sweep_status.txt`, per-run `.log` files, and any JSON status dumps in `_parallel_logs_*/` directories.
+2. **Training / simulation / sweep code** — whenever the task involves a non-trivial runnable script (Python or Julia), produce **two artifacts**:
+   - The script itself, written against the `/mnt/c/.../code_insights/` layout.
+   - An accompanying `.bat` file that runs the same script from Windows (using the equivalent `C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights\` path).
+3. **No duplicate large datasets** — scripts must read/write data in the single Windows-mounted tree. Do not design workflows that copy `../data/` or `.arrow` corpora into the git working directory.
+4. **Git as transport + post-run archive** — commit scripts and `.bat` files to the repo; the user will pull/transfer them into the `/mnt` tree for execution. While a run is **live**, logs/status files exist only in the `/mnt` tree. After a run **completes**, final logs and status files are pushed to git so the repo has the archived record.
