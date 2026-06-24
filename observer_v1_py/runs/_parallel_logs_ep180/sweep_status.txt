@@ -1,3 +1,2 @@
-[sweep] 44 min | done 0 failed 0 running 2 queued 0 / 2 to run
-  - S1_train_w32_non_phys_max_norm_ep180 (44m): [157/181 physics       lr×0.10 ws1.00 wp0.00] sup 0.00468 phys 0.00000 val 0.00474
-  - S2_train_w32_non_phys_max_norm_ep180 (44m): [157/181 physics       lr×0.10 ws1.00 wp0.00] sup 0.00491 phys 0.00000 val 0.00576
+[sweep] 122 min | done 2 failed 0 running 0 queued 0 / 2 to run
+done:   S1_train_w32_non_phys_max_norm_ep180, S2_train_w32_non_phys_max_norm_ep180
