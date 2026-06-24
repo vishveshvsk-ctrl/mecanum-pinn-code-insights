@@ -21,7 +21,7 @@ import pandas as pd
 import torch
 
 from . import data as D
-from .config import ObserverConfig, N_STATES, N_WHEELS, TARGET_STATES, COS_DELTA
+from .config import ObserverConfig, N_STATES, N_WHEELS, TARGET_STATES, COS_DELTA, WZ_P95
 from .models import build_model
 
 SLIP_EDGES = np.array([0.0, 0.01, 0.03, 0.1, 0.3, 1.0, np.inf])
@@ -84,7 +84,9 @@ def _score_split(files: List[Path], split_label: str, model, nrm,
         sin_tt = win["sin_tt"]                               # [M,4] raw
         wz_lbl = win["wz"]                                   # [M,4] raw label
         oz_pred = psid_signed[:, None] + pred_p[:, :, 0] * sin_tt * COS_DELTA[None, :]
-        oz_std = max(float(np.std(wz_lbl)), 1e-9)
+        # Frozen global p95 (NOT per-file std, which exploded at low spin and made
+        # the metric incomparable to the p95-normalised gamma/zx/zy). See config.WZ_P95.
+        oz_std = WZ_P95
 
         slip_bin = np.clip(np.digitize(win["vpm"], SLIP_EDGES) - 1, 0, nb_slip - 1)
         wzb = np.clip(np.digitize(np.abs(wz_lbl), WZ_EDGES) - 1, 0, nb_wz - 1)

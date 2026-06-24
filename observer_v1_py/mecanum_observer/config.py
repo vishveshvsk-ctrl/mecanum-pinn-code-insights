@@ -118,6 +118,14 @@ TARGET_COL = {"gamma": "gamma{i}", "zx": "zx_{i}", "zy": "zy_{i}"}
 # Auxiliary label columns used ONLY for evaluation/binning (never inputs):
 AUX_COLS = ["wz_{i}", "Vpx_{i}", "Vpy_{i}"]
 
+# Frozen global |p95| of per-wheel omega_z (rad/s), from the deployment scaler
+# variable_scaler_percentiles.csv (row `wz`). Used to normalise the derived-omega_z
+# eval metric (evaluation.py). REPLACES a per-file std(wz) normalisation, which was
+# pathological at low spin (tiny denom -> exploded the low-|wz| bins) and made the
+# omega_z metric incomparable to the p95-normalised gamma/zx/zy. Mirrors design
+# decision #1 (frozen p95, deployment-norm).
+WZ_P95 = 9.00671100616455
+
 # Derived per-wheel measurable INPUT features (built in features.py).
 # The gamma=0 slip surrogate (Vpx0/Vpy0) is NOT an input: Vpy0 is a pure linear
 # combo of {Vy, psi_dot} and Vpx0 is linear in {Vx, psi_dot, w} except a single
