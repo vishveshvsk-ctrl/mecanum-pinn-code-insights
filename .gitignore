@@ -37,6 +37,7 @@ _nb_read_eval/
 .headroom/
 kimi_start_prompt.txt
 monitoring_location.txt
+kimi_code_creator_wsl.md
 
 # --- Logs, DBs, process output ------------------------------------------
 *.log
