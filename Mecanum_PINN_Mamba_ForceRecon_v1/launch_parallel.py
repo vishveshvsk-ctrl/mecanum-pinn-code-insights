@@ -12,7 +12,8 @@
 #   python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --warm-cache --max-parallel 4
 #   python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --dry-run
 #   # A2-like window ablation (DEFAULT): seq_len in {8,16,32}, stride=0.5*seq_len,
-#   # crossed with {S1,S2,S3x4chi} = 18 runs. Override with --windows / --stride-frac.
+#   # crossed with {S1,S2} = 6 runs (S3 chi k-fold excluded by default). Override
+#   # with --windows / --stride-frac / --regimes.
 #   python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --windows 8,16,32
 #   # model sweep: ssm_d_model x ssm_d_state grid, crossed with windows x regimes
 #   python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --ssm-dims 32x16,48x16,32x24
@@ -87,7 +88,7 @@ def main():
     ap = argparse.ArgumentParser(description="A1 force-recon parallel sweep (shared core).")
     ap.add_argument("--max-parallel", type=int, default=4,
                     help="N concurrent runs; set from nvidia-smi GPU util (NOT VRAM).")
-    ap.add_argument("--regimes", default="S1_train,S2_train,S3_chi_kfold")
+    ap.add_argument("--regimes", default="S1_train,S2_train")
     ap.add_argument("--chis", default="0.0,0.002,0.005,0.008", help="S3 held-out chi folds")
     ap.add_argument("--windows", default="8,16,32",
                     help="A2-like window ablation: seq_len values to sweep (= lookback)")
