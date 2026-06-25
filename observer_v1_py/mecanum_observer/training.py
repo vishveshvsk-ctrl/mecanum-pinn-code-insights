@@ -257,7 +257,7 @@ def train(cfg: ObserverConfig) -> None:
 
     train_loader, val_loader = loader(sp["train"], True), loader(sp["val"], False)
 
-    vl = None
+    vl, vl_state = None, None
     epoch_log_totals: Dict[str, tuple] = {}   # key -> (running_sum, count)
     for ge in range(start_epoch, len(plan)):
         ph = plan[ge]
@@ -291,7 +291,8 @@ def train(cfg: ObserverConfig) -> None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
             scaler.step(opt); scaler.update()
             agg["sup"] += float(l_sup.detach()); nb += 1
-        vl = evaluate_loss(model, val_loader, device, amp_dtype)
+        vl, vl_state = evaluate_loss(model, val_loader, device, amp_dtype, cfg, ph,
+                                     y_mean_t, y_std_t, Minv)
         nb = max(nb, 1)
 
         # Per-component epoch means.
@@ -317,7 +318,8 @@ def train(cfg: ObserverConfig) -> None:
 
         print(f"[{ge:3d}/{len(plan)} {ph['phase']:<13} lr×{ph['lr_scale']:.2f} "
               f"ws{ph['w_sup']:.2f} wp{ph['w_phys']:.2f}] "
-              f"sup {agg['sup']/nb:.5f} {phys_summary} val {vl:.5f}")
+              f"sup {agg['sup']/nb:.5f} {phys_summary} "
+              f"val {vl:.5f} val_state {vl_state:.5f}")
 
         # Latest checkpoint (for resume).
         torch.save(dict(model=model.state_dict(), opt=opt.state_dict(),
@@ -336,8 +338,11 @@ def train(cfg: ObserverConfig) -> None:
 
     # metrics.json = completion marker + per-component epoch means.
     if vl is None:
-        vl = evaluate_loss(model, val_loader, device, amp_dtype)
-    metrics = dict(val_loss=float(vl), epochs=len(plan), model=cfg.model,
+        ph_last = plan[-1]
+        vl, vl_state = evaluate_loss(model, val_loader, device, amp_dtype, cfg,
+                                     ph_last, y_mean_t, y_std_t, Minv)
+    metrics = dict(val_loss=float(vl), val_state_loss=float(vl_state),
+                   epochs=len(plan), model=cfg.model,
                    window=cfg.window, stride=cfg.eff_stride,
                    regime=cfg.regime_name, chi_fold_test=cfg.chi_fold_test,
                    physics_loss=cfg.physics_loss, physics_variant=cfg.physics_variant,
@@ -352,14 +357,27 @@ def train(cfg: ObserverConfig) -> None:
 
 
 @torch.no_grad()
-def evaluate_loss(model, loader, device, amp_dtype) -> float:
+def evaluate_loss(model, loader, device, amp_dtype, cfg: ObserverConfig, ph: dict,
+                  y_mean_t, y_std_t, Minv) -> tuple[float, float]:
+    """Return (total_val_loss, state_val_loss) using the same weighted objective
+    as training: w_sup * state_loss + w_phys * physics_loss."""
     model.eval()
-    tot, nb = 0.0, 0
+    tot, state_tot, nb = 0.0, 0.0, 0
     for batch in loader:
         Gw = batch["Gw"].to(device); Pw = batch["Pw"].to(device)
         Yt = batch["Yt"].to(device)
         with torch.autocast(device_type=device.type, dtype=amp_dtype,
                             enabled=amp_dtype is not None):
-            loss, _ = observer_loss(model(Gw, Pw).float(), Yt)
-        tot += float(loss); nb += 1
-    return tot / max(nb, 1)
+            pred = model(Gw, Pw).float()
+            l_sup, _ = observer_loss(pred, Yt)
+            loss = ph["w_sup"] * l_sup
+            if ph["w_phys"] > 0.0 and cfg.physics_loss:
+                pred_phys = pred * y_std_t + y_mean_t
+                l_phys, _ = physics_loss(pred_phys, _phys_batch(batch, device),
+                                         variant=cfg.physics_variant, Minv=Minv)
+                loss = loss + ph["w_phys"] * l_phys
+        tot += float(loss)
+        state_tot += float(l_sup)
+        nb += 1
+    n = max(nb, 1)
+    return tot / n, state_tot / n
