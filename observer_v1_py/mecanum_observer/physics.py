@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import math
 
+import torch
+
 from . import config as C
 
 _8_3PI = 8.0 / (3.0 * math.pi)
@@ -112,3 +114,70 @@ def wheel_residual(xp, gamma, zx, zy, zs, mu, chi,
     N = _as(gamma, C.N_PER_ROLLER)
     Fx, _, _ = lugre_forces(xp, mu[..., None], N, chi[..., None], w_z, Vpx, Vpy, zx, zy, zs)
     return C.J_WHEEL * w_dot - (Msat - C.R * Fx - C.P1 * w)
+
+
+# ---------------------------------------------------------------------------
+# Analytical body-velocity propagation (force-recon style Newton-Euler)
+# ---------------------------------------------------------------------------
+
+def body_generalized_force(Fx: torch.Tensor, Fy: torch.Tensor,
+                           px: torch.Tensor, py: torch.Tensor) -> torch.Tensor:
+    """Per-wheel body-frame forces -> platform generalized force [Qx, Qy, Mz_body].
+
+    Mirrors Mecanum_PINN_Mamba_ForceRecon_v1/mecanum_pinn/physics.py.
+    Fx/Fy: (..., 4); px/py: (4,) -> (..., 3).
+    """
+    Qx = Fx.sum(dim=-1)
+    Qy = Fy.sum(dim=-1)
+    Mz = (px * Fy - py * Fx).sum(dim=-1)
+    return torch.stack([Qx, Qy, Mz], dim=-1)          # (..., 3)
+
+
+def _mass_matrix_inv(ms: float, m: float, aX: float, aY: float, Is: float,
+                     device: torch.device, dtype: torch.dtype):
+    M = torch.tensor([
+        [ms, 0.0, -m * aY],
+        [0.0, ms, m * aX],
+        [-m * aY, m * aX, Is],
+    ], dtype=dtype, device=device)
+    return torch.inverse(M)
+
+
+def velocity_rhs(state: torch.Tensor, Fx: torch.Tensor, Fy: torch.Tensor,
+                 px: torch.Tensor, py: torch.Tensor,
+                 ms: float, m: float, aX: float, aY: float, Is: float) -> torch.Tensor:
+    """Continuous-time RHS d/dt[Vx, Vy, psi_dot] from body forces (physical units).
+
+    state: (..., 3) = [Vx, Vy, psi_dot]
+    Fx/Fy: (..., 4) per-wheel body-frame forces.
+    Returns (..., 3) accelerations [ax, ay, alpha].
+
+    Matches the body-EOM in run_one.jl and the force-recon integrator,
+    including Coriolis/centrifugal terms from COM offset.
+    """
+    Vx = state[..., 0]
+    Vy = state[..., 1]
+    pd = state[..., 2]
+    Q = body_generalized_force(Fx, Fy, px, py)       # (..., 3)
+    RHS0 = Q[..., 0] + ms * pd * Vy + m * aX * pd * pd
+    RHS1 = Q[..., 1] - ms * pd * Vx + m * aY * pd * pd
+    RHS2 = Q[..., 2] - m * pd * (aX * Vx + aY * Vy)
+    RHS = torch.stack([RHS0, RHS1, RHS2], dim=-1)    # (..., 3)
+    M_inv = _mass_matrix_inv(ms, m, aX, aY, Is, state.device, state.dtype)
+    return RHS @ M_inv.t()                           # (..., 3)
+
+
+def forward_velocity_step(state: torch.Tensor, Fx: torch.Tensor, Fy: torch.Tensor,
+                          dt: float, px: torch.Tensor, py: torch.Tensor,
+                          ms: float, m: float, aX: float, aY: float, Is: float,
+                          method: str = "euler") -> torch.Tensor:
+    """One-step analytical integration of platform velocity.
+
+    state: (..., 3) current [Vx, Vy, psi_dot]
+    Fx/Fy: (..., 4) per-wheel body-frame forces at the current step.
+    method: "euler" (default, cheap) or "heun" (requires F_next, not supplied here).
+    Returns (..., 3) predicted [Vx, Vy, psi_dot] at t+dt.
+    """
+    if method == "euler":
+        return state + dt * velocity_rhs(state, Fx, Fy, px, py, ms, m, aX, aY, Is)
+    raise ValueError(f"Unsupported integration method: {method}")

@@ -76,6 +76,7 @@ def regime_to_kwargs(d: Dict[str, Any]) -> Dict[str, Any]:
         "window": ("train", "window", int),
         "phases": ("train", "phases", str),
         "physics_loss": ("train", "physics_loss", bool),
+        "velocity_prop_loss": ("train", "velocity_prop_loss", bool),
         "train_fold": ("fold", "train_fold", str),
         "backbone_profiles": ("fold", "backbone", list),
         "redundant_S1": ("fold", "redundant_S1", list),
@@ -500,11 +501,17 @@ def make_windows(a: Dict[str, np.ndarray], nrm: Normalizer, cfg: ObserverConfigT
     # Physical window-end block for the physics loss (raw units). P feature order
     # is [Msat, w, sin_tt, cos_tt]; Vpx0/Vpy0 come from the separate slip arrays
     # (they are NOT inputs); G is [Vx, Vy, psi_dot].
-    if cfg.physics_loss:
+    if cfg.physics_loss or cfg.velocity_prop_loss:
         dt = C.DECIM / C.SIM_HZ                              # 1/500 s
         Pe = a["P"][ends]                                    # [M,4,4] raw
         w_dot = (a["P"][ends, :, 1] - a["P"][ends - 1, :, 1]) / dt
         M = ends.shape[0]
+        # Next-step platform velocities for the analytical velocity-propagation
+        # metric. The last window end has no t+1 sample -> mask it out.
+        vp_valid = ends < (T - 1)
+        Vx_next = np.where(vp_valid, a["G"][np.minimum(ends + 1, T - 1), 0], 0.0)
+        Vy_next = np.where(vp_valid, a["G"][np.minimum(ends + 1, T - 1), 1], 0.0)
+        psid_next = np.where(vp_valid, a["G"][np.minimum(ends + 1, T - 1), 2], 0.0)
         out.update(
             ph_psi_dot=a["G"][ends, 2].astype(np.float32),  # [M] (physical psi_dot)
             ph_Vpx0=a["Vpx0"][ends].astype(np.float32),
@@ -513,6 +520,12 @@ def make_windows(a: Dict[str, np.ndarray], nrm: Normalizer, cfg: ObserverConfigT
             ph_Msat=Pe[:, :, 0].astype(np.float32), ph_w=Pe[:, :, 1].astype(np.float32),
             ph_w_dot=w_dot.astype(np.float32),
             ph_mu=np.full(M, a["mu"], np.float32), ph_chi=np.full(M, a["chi"], np.float32),
+            ph_Vx=a["G"][ends, 0].astype(np.float32),
+            ph_Vy=a["G"][ends, 1].astype(np.float32),
+            ph_Vx_next=Vx_next.astype(np.float32),
+            ph_Vy_next=Vy_next.astype(np.float32),
+            ph_psid_next=psid_next.astype(np.float32),
+            ph_vp_valid=vp_valid.astype(np.float32),
         )
     return out
 
