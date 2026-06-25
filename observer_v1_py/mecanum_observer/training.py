@@ -4,8 +4,9 @@
 #
 # Memory-safe: WindowStream is an IterableDataset that reads one Arrow file at a
 # time, builds causal windows, and serves them through a bounded shuffle buffer.
-# Files are sharded across (<=8) workers. Resume-aware: a per-epoch checkpoint
-# carries model+optimiser+global-epoch+config.
+# Files are sharded across (<=8) workers. Resume-aware: the latest checkpoint
+# carries model+optimiser+global-epoch+config; per-phase snapshots are saved at
+# phase boundaries for ablation.
 #
 # Curriculum mirrors train_GPU_PINN_v14's forward schedule (grounding ->
 # phys_rampup -> overlap -> grnd_rampdown -> physics) with its lr scaling. The
@@ -318,13 +319,19 @@ def train(cfg: ObserverConfig) -> None:
               f"ws{ph['w_sup']:.2f} wp{ph['w_phys']:.2f}] "
               f"sup {agg['sup']/nb:.5f} {phys_summary} val {vl:.5f}")
 
-        # Latest checkpoint (for resume) + per-epoch snapshot (for ablation).
+        # Latest checkpoint (for resume).
         torch.save(dict(model=model.state_dict(), opt=opt.state_dict(),
                         epoch=ge, cfg=asdict(cfg)), ckpt)
-        snap_dir = run_dir / "epoch_ckpts"; snap_dir.mkdir(exist_ok=True)
-        torch.save(dict(model=model.state_dict(), epoch=ge, phase=ph["phase"],
-                        w_sup=ph["w_sup"], w_phys=ph["w_phys"], cfg=asdict(cfg)),
-                   snap_dir / f"ep{ge:03d}.pt")
+
+        # Per-phase snapshot: save at the last epoch of each phase (including the
+        # final epoch of training).
+        is_last_epoch = (ge == len(plan) - 1)
+        next_phase = plan[ge + 1]["phase"] if not is_last_epoch else None
+        if is_last_epoch or next_phase != ph["phase"]:
+            snap_dir = run_dir / "phase_ckpts"; snap_dir.mkdir(exist_ok=True)
+            torch.save(dict(model=model.state_dict(), epoch=ge, phase=ph["phase"],
+                            w_sup=ph["w_sup"], w_phys=ph["w_phys"], cfg=asdict(cfg)),
+                       snap_dir / f"{ph['phase']}_ep{ge:03d}.pt")
     print(f"[train] done -> {ckpt}")
 
     # metrics.json = completion marker + per-component epoch means.
