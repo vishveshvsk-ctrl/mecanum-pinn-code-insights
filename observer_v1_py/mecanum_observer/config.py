@@ -48,6 +48,7 @@ PY = np.array([L, -L, L, -L])        # py_i  (wc_y)
 M_PLATFORM = 30.0
 M_WHEEL = 1.4
 J_WHEEL = 5.87e-3
+Is = 4.42            # platform yaw inertia (kg m^2), from force-recon physics.py
 AX = 1.6e-2          # COM offset X
 AY = -2.6e-2         # COM offset Y
 P1 = 0.11            # drivetrain viscous (friction_case 1)  -> wheel balance
@@ -236,6 +237,7 @@ class ObserverConfig:
     phases: str = "supervised"             # "supervised" | "a1_5phase"
     phase_total_epochs: int = 0            # 0 = full PHASE_SCHEDULE (250); else scale to this
     physics_loss: bool = False             # γ + wheel-balance residuals (χ per-sample)
+    velocity_prop_loss: bool = False       # analytically integrate [Vx,Vy,psi_dot] one step
 
     target_states: List[str] = field(default_factory=lambda: list(TARGET_STATES))
 

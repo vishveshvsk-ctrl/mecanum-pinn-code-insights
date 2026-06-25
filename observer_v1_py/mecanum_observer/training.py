@@ -34,11 +34,13 @@ from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 from . import config as C
 from . import data as D
 from .config import ObserverConfig
-from .losses import observer_loss, physics_loss
+from .losses import observer_loss, physics_loss, velocity_propagation_loss
 from .models import build_model
 
 _PHYS_KEYS = ["ph_psi_dot", "ph_Vpx0", "ph_Vpy0", "ph_cti", "ph_sti",
-              "ph_Msat", "ph_w", "ph_w_dot", "ph_mu", "ph_chi"]
+              "ph_Msat", "ph_w", "ph_w_dot", "ph_mu", "ph_chi",
+              "ph_Vx", "ph_Vy", "ph_Vx_next", "ph_Vy_next", "ph_psid_next",
+              "ph_vp_valid"]
 
 
 class WindowStream(IterableDataset):
@@ -49,7 +51,7 @@ class WindowStream(IterableDataset):
         self.nrm = nrm
         self.cfg = cfg
         self.shuffle = shuffle
-        self.keys = ["Gw", "Pw", "Yt"] + (_PHYS_KEYS if cfg.physics_loss else [])
+        self.keys = ["Gw", "Pw", "Yt"] + (_PHYS_KEYS if (cfg.physics_loss or cfg.velocity_prop_loss) else [])
 
     def _my_files(self) -> List[Path]:
         wi = get_worker_info()
@@ -92,9 +94,9 @@ class WindowStream(IterableDataset):
 
 
 def _phase_plan(cfg: ObserverConfig) -> List[dict]:
-    """Flat per-global-epoch schedule: [{phase, lr_scale, w_sup, w_phys}, ...]."""
+    """Flat per-global-epoch schedule: [{phase, lr_scale, w_sup, w_phys, w_vp}, ...]."""
     if cfg.phases != "a1_5phase":
-        return [dict(phase="flat", lr_scale=1.0, w_sup=1.0, w_phys=0.0)
+        return [dict(phase="flat", lr_scale=1.0, w_sup=1.0, w_phys=0.0, w_vp=0.0)
                 for _ in range(cfg.epochs)]
     sched = C.PHASE_SCHEDULE
     if cfg.phase_total_epochs > 0:                          # scale the 5 phases to this total
@@ -103,6 +105,7 @@ def _phase_plan(cfg: ObserverConfig) -> List[dict]:
         sched = [(name, max(1, round(n * f)), lrs) for name, n, lrs in sched]
     plan: List[dict] = []
     phys_on = cfg.physics_loss
+    vp_on = cfg.velocity_prop_loss
     for name, n, lrs in sched:
         for e in range(n):
             frac = e / max(n - 1, 1)
@@ -118,7 +121,9 @@ def _phase_plan(cfg: ObserverConfig) -> List[dict]:
                 w_sup, w_phys = 1.0 - (1.0 - C.W_SUP_MIN) * frac, 1.0
             else:  # physics
                 w_sup, w_phys = C.W_SUP_MIN, 1.0
-            plan.append(dict(phase=name, lr_scale=lrs, w_sup=w_sup, w_phys=w_phys))
+            w_vp = w_phys if vp_on else 0.0
+            plan.append(dict(phase=name, lr_scale=lrs, w_sup=w_sup,
+                             w_phys=w_phys, w_vp=w_vp))
     return plan
 
 
@@ -148,7 +153,12 @@ def _phys_batch(batch, device):
         Vpy0=batch["ph_Vpy0"].to(device), cti=batch["ph_cti"].to(device),
         sti=batch["ph_sti"].to(device), Msat=batch["ph_Msat"].to(device),
         w=batch["ph_w"].to(device), w_dot=batch["ph_w_dot"].to(device),
-        mu=batch["ph_mu"].to(device), chi=batch["ph_chi"].to(device))
+        mu=batch["ph_mu"].to(device), chi=batch["ph_chi"].to(device),
+        Vx=batch["ph_Vx"].to(device), Vy=batch["ph_Vy"].to(device),
+        Vx_next=batch["ph_Vx_next"].to(device),
+        Vy_next=batch["ph_Vy_next"].to(device),
+        psid_next=batch["ph_psid_next"].to(device),
+        vp_valid=batch["ph_vp_valid"].to(device))
 
 
 def train(cfg: ObserverConfig) -> None:
@@ -233,7 +243,7 @@ def train(cfg: ObserverConfig) -> None:
         for grp in opt.param_groups:
             grp["lr"] = cfg.lr * ph["lr_scale"]
         model.train()
-        agg = {"sup": 0.0, "phys": 0.0}; nb = 0
+        agg = {"sup": 0.0, "phys": 0.0, "vp": 0.0}; nb = 0
         for batch in train_loader:
             Gw = batch["Gw"].to(device, non_blocking=True)
             Pw = batch["Pw"].to(device, non_blocking=True)
@@ -250,6 +260,11 @@ def train(cfg: ObserverConfig) -> None:
                 l_phys, _ = physics_loss(pred_phys, _phys_batch(batch, device))
                 loss = loss + ph["w_phys"] * l_phys
                 agg["phys"] += float(l_phys.detach())
+            if ph["w_vp"] > 0.0 and cfg.velocity_prop_loss:
+                pred_phys = pred * y_std_t + y_mean_t
+                l_vp, _ = velocity_propagation_loss(pred_phys, _phys_batch(batch, device))
+                loss = loss + ph["w_vp"] * l_vp
+                agg["vp"] += float(l_vp.detach())
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
@@ -258,8 +273,9 @@ def train(cfg: ObserverConfig) -> None:
         vl = evaluate_loss(model, val_loader, device, amp_dtype)
         nb = max(nb, 1)
         print(f"[{ge:3d}/{len(plan)} {ph['phase']:<13} lr×{ph['lr_scale']:.2f} "
-              f"ws{ph['w_sup']:.2f} wp{ph['w_phys']:.2f}] "
-              f"sup {agg['sup']/nb:.5f} phys {agg['phys']/nb:.5f} val {vl:.5f}")
+              f"ws{ph['w_sup']:.2f} wp{ph['w_phys']:.2f} wvp{ph['w_vp']:.2f}] "
+              f"sup {agg['sup']/nb:.5f} phys {agg['phys']/nb:.5f} "
+              f"vp {agg['vp']/nb:.5f} val {vl:.5f}")
         torch.save(dict(model=model.state_dict(), opt=opt.state_dict(),
                         epoch=ge, cfg=asdict(cfg)), ckpt)
     print(f"[train] done -> {ckpt}")

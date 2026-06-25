@@ -55,6 +55,8 @@ def main() -> None:
                     help="normalization: 'var' (z-score, fit on train) or 'max' (frozen p95 scaler)")
     ap.add_argument("--scaler-csv", type=str, default=None,
                     help="max-norm: path to variable_scaler_percentiles.csv")
+    ap.add_argument("--velocity-prop-loss", action="store_true",
+                    help="enable analytical one-step velocity-propagation loss/metric")
     ap.add_argument("--require-gpu", action="store_true",
                     help="hard-fail if CUDA is unavailable")
     ap.add_argument("--jobs", type=int, default=None, help="dataloader workers (<=8)")
@@ -101,7 +103,8 @@ def main() -> None:
                             ("phase_epochs", "phase_total_epochs"),
                             ("seed", "seed"), ("test_chi", "chi_fold_test"),
                             ("run_tag", "run_tag_override"),
-                            ("norm", "norm_method"), ("scaler_csv", "scaler_csv")]:
+                            ("norm", "norm_method"), ("scaler_csv", "scaler_csv"),
+                            ("velocity_prop_loss", "velocity_prop_loss")]:
         v = getattr(args, arg_name)
         if v is not None:
             kw[field] = v
@@ -109,7 +112,8 @@ def main() -> None:
     print(f"[cli] vram={args.vram} regime={cfg.regime_name} model={cfg.model} "
           f"window={cfg.window} stride={cfg.eff_stride} batch={cfg.batch_size} "
           f"jobs={cfg.jobs} phases={cfg.phases}({cfg.phase_total_epochs or 'full'}) "
-          f"physics={cfg.physics_loss} cache={cfg.cache_dir or 'off'}")
+          f"physics={cfg.physics_loss} vp_loss={cfg.velocity_prop_loss} "
+          f"cache={cfg.cache_dir or 'off'}")
     train(cfg)
 
 
