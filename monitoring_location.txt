@@ -1,0 +1,13 @@
+Monitor the A2 physics-loss matrix runs here:
+
+Windows path:
+  C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights\observer_v1_py\runs\
+
+WSL / Linux mount path (use this in the sandbox):
+  /mnt/c/Users/vishv/OneDrive/Desktop/Vishvesh_Data/VNIT/mecanum_pinn_head/code_insights/observer_v1_py/runs/
+
+Key files/directories to watch:
+  - sweep_status.txt in each _parallel_logs_phys_* directory
+  - per-run .log files in the same _parallel_logs_* directories
+  - per-run metrics.json in observer_v1_py/runs/S{1,2}_train_w32_phys_{integrated,residual}_b1024/
+  - per-epoch snapshots in observer_v1_py/runs/S{1,2}_train_w32_phys_{integrated,residual}_b1024/epoch_ckpts/

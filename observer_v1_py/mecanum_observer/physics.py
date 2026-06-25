@@ -117,67 +117,73 @@ def wheel_residual(xp, gamma, zx, zy, zs, mu, chi,
 
 
 # ---------------------------------------------------------------------------
-# Analytical body-velocity propagation (force-recon style Newton-Euler)
+# Body + integrated physics-loss helpers (same one-step EOM, two scalings)
 # ---------------------------------------------------------------------------
 
-def body_generalized_force(Fx: torch.Tensor, Fy: torch.Tensor,
-                           px: torch.Tensor, py: torch.Tensor) -> torch.Tensor:
-    """Per-wheel body-frame forces -> platform generalized force [Qx, Qy, Mz_body].
+def body_residual(xp, gamma, zx, zy, zs, mu, chi,
+                  psi_dot, Vpx0, Vpy0, cti, sti,
+                  Vx, Vy, dVx, dVy, dpsi_dot):
+    """Body Newton-Euler residual, generalized-force form (physical units).
 
-    Mirrors Mecanum_PINN_Mamba_ForceRecon_v1/mecanum_pinn/physics.py.
-    Fx/Fy: (..., 4); px/py: (4,) -> (..., 3).
-    """
-    Qx = Fx.sum(dim=-1)
-    Qy = Fy.sum(dim=-1)
-    Mz = (px * Fy - py * Fx).sum(dim=-1)
-    return torch.stack([Qx, Qy, Mz], dim=-1)          # (..., 3)
-
-
-def _mass_matrix_inv(ms: float, m: float, aX: float, aY: float, Is: float,
-                     device: torch.device, dtype: torch.dtype):
-    M = torch.tensor([
-        [ms, 0.0, -m * aY],
-        [0.0, ms, m * aX],
-        [-m * aY, m * aX, Is],
-    ], dtype=dtype, device=device)
-    return torch.inverse(M)
-
-
-def velocity_rhs(state: torch.Tensor, Fx: torch.Tensor, Fy: torch.Tensor,
-                 px: torch.Tensor, py: torch.Tensor,
-                 ms: float, m: float, aX: float, aY: float, Is: float) -> torch.Tensor:
-    """Continuous-time RHS d/dt[Vx, Vy, psi_dot] from body forces (physical units).
-
-    state: (..., 3) = [Vx, Vy, psi_dot]
-    Fx/Fy: (..., 4) per-wheel body-frame forces.
-    Returns (..., 3) accelerations [ax, ay, alpha].
-
-    Matches the body-EOM in run_one.jl and the force-recon integrator,
-    including Coriolis/centrifugal terms from COM offset.
-    """
-    Vx = state[..., 0]
-    Vy = state[..., 1]
-    pd = state[..., 2]
-    Q = body_generalized_force(Fx, Fy, px, py)       # (..., 3)
-    RHS0 = Q[..., 0] + ms * pd * Vy + m * aX * pd * pd
-    RHS1 = Q[..., 1] - ms * pd * Vx + m * aY * pd * pd
-    RHS2 = Q[..., 2] - m * pd * (aX * Vx + aY * Vy)
-    RHS = torch.stack([RHS0, RHS1, RHS2], dim=-1)    # (..., 3)
-    M_inv = _mass_matrix_inv(ms, m, aX, aY, Is, state.device, state.dtype)
-    return RHS @ M_inv.t()                           # (..., 3)
+    gamma/zx/zy/cti/sti/Vpx0/Vpy0: [...,4]; mu/chi/Vx/Vy/psi_dot/dV*: [...].
+    Returns (r0, r1, r2), each [...] (already normalised, dimensionless)."""
+    Vpx, Vpy, w_z, *_ = contact_from_gamma(gamma, psi_dot, Vpx0, Vpy0, cti, sti)
+    N = _as(gamma, C.N_PER_ROLLER)
+    Fpar, Fperp, _ = lugre_forces(xp, mu[..., None], N, chi[..., None],
+                                  w_z, Vpx, Vpy, zx, zy, zs)
+    cd = _as(gamma, C.COS_DELTA); sd = _as(gamma, C.SIN_DELTA)
+    Fx = Fpar * cd - Fperp * sd
+    Fy = Fpar * sd + Fperp * cd
+    px = _as(gamma, C.PX); py = _as(gamma, C.PY)
+    ms, m, aX, aY = C.MS, C.M_PLATFORM, C.AX, C.AY
+    RHS0 = Fx.sum(-1) + ms * psi_dot * Vy + m * aX * psi_dot * psi_dot
+    RHS1 = Fy.sum(-1) - ms * psi_dot * Vx + m * aY * psi_dot * psi_dot
+    RHS2 = (px * Fy - py * Fx).sum(-1) - m * psi_dot * (aX * Vx + aY * Vy)
+    Mdv0 = ms * dVx - m * aY * dpsi_dot
+    Mdv1 = ms * dVy + m * aX * dpsi_dot
+    Mdv2 = -m * aY * dVx + m * aX * dVy + C.IS * dpsi_dot
+    return ((Mdv0 - RHS0) / C.BODY_F_SCALE,
+            (Mdv1 - RHS1) / C.BODY_F_SCALE,
+            (Mdv2 - RHS2) / C.BODY_M_SCALE)
 
 
-def forward_velocity_step(state: torch.Tensor, Fx: torch.Tensor, Fy: torch.Tensor,
-                          dt: float, px: torch.Tensor, py: torch.Tensor,
-                          ms: float, m: float, aX: float, aY: float, Is: float,
-                          method: str = "euler") -> torch.Tensor:
-    """One-step analytical integration of platform velocity.
+def _body_wheel_rates(xp, Fpar, Fperp, Vx, Vy, psi_dot, w, Msat, Minv):
+    """Body+wheel accelerations from HELD roller forces and a (possibly mid-step) body state.
 
-    state: (..., 3) current [Vx, Vy, psi_dot]
-    Fx/Fy: (..., 4) per-wheel body-frame forces at the current step.
-    method: "euler" (default, cheap) or "heun" (requires F_next, not supplied here).
-    Returns (..., 3) predicted [Vx, Vy, psi_dot] at t+dt.
-    """
-    if method == "euler":
-        return state + dt * velocity_rhs(state, Fx, Fy, px, py, ms, m, aX, aY, Is)
-    raise ValueError(f"Unsupported integration method: {method}")
+    Fpar/Fperp/w/Msat: [...,4]; Vx,Vy,psi_dot: [...].
+    Minv: (3,3) torch tensor on the correct device.
+    Returns (dVx, dVy, dpd, [...,4] dw)."""
+    cd = _as(Fpar, C.COS_DELTA); sd = _as(Fpar, C.SIN_DELTA)
+    Fx = Fpar * cd - Fperp * sd; Fy = Fpar * sd + Fperp * cd
+    px = _as(Fpar, C.PX); py = _as(Fpar, C.PY)
+    ms, m, aX, aY = C.MS, C.M_PLATFORM, C.AX, C.AY
+    RHS0 = Fx.sum(-1) + ms * psi_dot * Vy + m * aX * psi_dot * psi_dot
+    RHS1 = Fy.sum(-1) - ms * psi_dot * Vx + m * aY * psi_dot * psi_dot
+    RHS2 = (px * Fy - py * Fx).sum(-1) - m * psi_dot * (aX * Vx + aY * Vy)
+    dVx = Minv[0, 0] * RHS0 + Minv[0, 1] * RHS1 + Minv[0, 2] * RHS2
+    dVy = Minv[1, 0] * RHS0 + Minv[1, 1] * RHS1 + Minv[1, 2] * RHS2
+    dpd = Minv[2, 0] * RHS0 + Minv[2, 1] * RHS1 + Minv[2, 2] * RHS2
+    dw = (Msat - C.R * Fpar - C.P1 * w) / C.J_WHEEL
+    return dVx, dVy, dpd, dw
+
+
+def integrated_step(xp, gamma, zx, zy, zs, mu, chi, psi_dot, Vpx0, Vpy0, cti, sti,
+                    Vx, Vy, w, Msat, Minv, dt):
+    """Heun (held force, O(dt^2)) one-step prediction of [Vx,Vy,psi_dot,w1..4] at t+1.
+
+    Returns (Vx_n, Vy_n, pd_n, w_n[...,4]) — PREDICTED next state (physical)."""
+    Vpx, Vpy, w_z, *_ = contact_from_gamma(gamma, psi_dot, Vpx0, Vpy0, cti, sti)
+    N = _as(gamma, C.N_PER_ROLLER)
+    Fpar, Fperp, _ = lugre_forces(xp, mu[..., None], N, chi[..., None],
+                                  w_z, Vpx, Vpy, zx, zy, zs)
+    # f1 at s_t
+    dVx1, dVy1, dpd1, dw1 = _body_wheel_rates(xp, Fpar, Fperp, Vx, Vy, psi_dot, w, Msat, Minv)
+    # Euler predictor s* (forces HELD)
+    Vxs = Vx + dt * dVx1; Vys = Vy + dt * dVy1
+    pds = psi_dot + dt * dpd1; ws = w + dt * dw1
+    dVx2, dVy2, dpd2, dw2 = _body_wheel_rates(xp, Fpar, Fperp, Vxs, Vys, pds, ws, Msat, Minv)
+    Vx_n = Vx + 0.5 * dt * (dVx1 + dVx2)
+    Vy_n = Vy + 0.5 * dt * (dVy1 + dVy2)
+    pd_n = psi_dot + 0.5 * dt * (dpd1 + dpd2)
+    w_n = w + 0.5 * dt * (dw1 + dw2)
+    return Vx_n, Vy_n, pd_n, w_n

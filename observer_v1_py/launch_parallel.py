@@ -53,6 +53,12 @@ def build_jobs(args):
             a += ["--scaler-csv", args.scaler_csv]
         if test_chi is not None:
             a += ["--test-chi", str(test_chi)]
+        if args.physics_loss:
+            a += ["--physics-loss"]
+        if args.physics_variant is not None:
+            a += ["--physics-variant", args.physics_variant]
+        if args.warm_from is not None:
+            a += ["--warm-from", args.warm_from]
         jobs.append(ps.Job(label=label, pkg_dir=PKG, entry=ENTRY, args=a,
                             run_dir=f"{args.out_dir}/{label}"))
 
@@ -97,6 +103,12 @@ def main():
     ap.add_argument("--csv", default=f"{PKG}/runs/sweep_results.csv")
     ap.add_argument("--warm-cache", action="store_true",
                     help="single-process decimated-cache pre-build before fan-out")
+    ap.add_argument("--physics-loss", action="store_true",
+                    help="passthrough: enable physics-based loss")
+    ap.add_argument("--physics-variant", default=None, choices=["residual", "integrated"],
+                    help="passthrough: physics-loss variant")
+    ap.add_argument("--warm-from", type=str, default=None,
+                    help="passthrough: weights-only warm-start checkpoint (one per launcher call)")
     ap.add_argument("--heartbeat", type=float, default=120.0,
                     help="seconds between terminal heartbeats + sweep_status.txt refresh")
     ap.add_argument("--dry-run", action="store_true")

@@ -1,31 +1,24 @@
 #!/usr/bin/env python
 # =============================================================================
-# losses.py — per-state normalised supervised loss.
+# losses.py — per-state normalised supervised loss + physics-loss variants.
 #
-# Targets are z-scored per state in the data pipeline, so plain MSE in that
-# space IS the per-state normalised MSE -> the 4 states contribute on equal
-# footing and the loss is not dominated by the largest-magnitude state. We do
-# NOT up-weight z: its expected irreducible floor (non-uniqueness, handoff §4.4)
-# is a result to MEASURE, not a term to fight. Purely supervised for now (the
-# self-supervised future-measurable term stays deferred, handoff §5).
+# The physics-loss variants express the SAME one-step Newton-Euler plant
+# constraint under two different scalings/normalisations:
+#   - "residual"  : instantaneous force/accel residual (wheel torque + body EOM)
+#   - "integrated": one Heun step from measured state using predicted forces,
+#                   compared to measured next sample, normalised by p95.
+# The (dropped) roller/gamma torque-balance term is computed every call for
+# monitoring only and is never backpropagated.
 # =============================================================================
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 
 from . import config as C
 from . import physics as P
 from .config import N_STATES, TARGET_STATES
-
-
-# ---------------------------------------------------------------------------
-# Mass/inertia constants for the velocity-propagation metric. These are the
-# same platform parameters used by the force-reconstruction integrator
-# (Mecanum_PINN_Mamba_ForceRecon_v1/mecanum_pinn/physics.py).
-# ---------------------------------------------------------------------------
-_MS = C.M_PLATFORM + 4.0 * C.M_WHEEL
 
 
 def observer_loss(pred: torch.Tensor, target: torch.Tensor
@@ -41,114 +34,78 @@ def observer_loss(pred: torch.Tensor, target: torch.Tensor
     return loss, log
 
 
-def physics_loss(pred_phys: torch.Tensor, phys: Dict[str, torch.Tensor]
+def physics_loss(pred_phys: torch.Tensor, phys: Dict[str, torch.Tensor],
+                 variant: str = "integrated",
+                 Minv: Optional[torch.Tensor] = None
                  ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Quasi-static roller + wheel torque-balance residuals from the PREDICTED
-    (physical) states. pred_phys: [B,4 wheels,4 states] = (gamma,zx,zy,zs) in
-    physical units. `phys` carries the per-sample measurables + mu/chi at the
-    prediction time. Mz term is excluded (low-SNR, chi^2-tiny). Returns
-    (scalar loss, per-term dict)."""
-    gamma = pred_phys[:, :, 0]; zx = pred_phys[:, :, 1]; zy = pred_phys[:, :, 2]
-    zs = torch.zeros_like(gamma)         # zs not predicted; Mz unused in residuals
-    r_roll = P.roller_residual(torch, gamma, zx, zy, zs, phys["mu"], phys["chi"],
-                               phys["psi_dot"], phys["Vpx0"], phys["Vpy0"],
-                               phys["cti"], phys["sti"]) / C.ROLLER_TAU
-    r_wheel = P.wheel_residual(torch, gamma, zx, zy, zs, phys["mu"], phys["chi"],
-                               phys["psi_dot"], phys["Vpx0"], phys["Vpy0"],
-                               phys["cti"], phys["sti"],
-                               phys["Msat"], phys["w"], phys["w_dot"]) / C.MAX_TORQUE
-    l_roll = (r_roll ** 2).mean()
-    l_wheel = (r_wheel ** 2).mean()
-    loss = l_roll + l_wheel
-    return loss, {"phys_roller": float(l_roll.detach()),
-                  "phys_wheel": float(l_wheel.detach())}
+    """Physics-loss dispatch: residual vs integrated. Roller is monitor-only.
 
-
-def velocity_propagation_loss(pred_phys: torch.Tensor, phys: Dict[str, torch.Tensor],
-                              dt: float | None = None,
-                              normalize: str = "none"
-                              ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Analytically integrate platform velocity one step and compare to measurement.
-
-    This is the force-recon-style Newton-Euler consistency check adapted to the
-    observer: predicted hidden states -> LuGre forces -> body generalized force ->
-    [Vx, Vy, psi_dot] propagation. It can be used as either an extra loss term or
-    (more commonly) a diagnostic metric.
-
-    Inputs
-    ------
-    pred_phys: [B, 4 wheels, 4] physical predictions (gamma, zx, zy, zs_dummy).
-    phys: dict with keys returned by data.make_windows when physics_loss=True,
-          including ph_Vx, ph_Vy, ph_psi_dot, ph_Vx_next, ph_Vy_next,
-          ph_psid_next, ph_vp_valid, plus the usual contact kinematics.
-    dt: time step in seconds. None -> 1 / TRAIN_HZ (2 ms @ 500 Hz).
-    normalize: "none" | "p95" | "range".
-        - "none": raw SI MSE (m/s)^2 and (rad/s)^2.
-        - "p95": divide velocities by their p95 scales before squaring.
-                 Uses frozen deployment scales (VX_P95, VY_P95, WZ_P95).
-        - "range": divide by per-batch range (max - min) of the target.
-
-    Returns (loss, log_dict).  The scalar loss averages Vx/Vy/psi_dot MSE.
+    pred_phys: [B, 4 wheels, 4 states] = (gamma,zx,zy,zs_dummy) in physical units.
+    phys: per-sample measurables + mu/chi + body-state terms from make_windows.
+    variant: {"residual", "integrated"}.
+    Minv: (3,3) torch inverse body mass matrix on device (required for integrated).
+    Returns (scalar loss, per-component log dict).
     """
-    if dt is None:
-        dt = C.T_S
+    gamma = pred_phys[:, :, 0]; zx = pred_phys[:, :, 1]; zy = pred_phys[:, :, 2]
+    zs = torch.zeros_like(gamma)         # zs not predicted; Mz unused
+    loss = pred_phys.new_zeros(())
+    log: Dict[str, float] = {}
 
-    gamma = pred_phys[:, :, 0]
-    zx = pred_phys[:, :, 1]
-    zy = pred_phys[:, :, 2]
-    zs = torch.zeros_like(gamma)
+    if variant == "residual":
+        # wheel (4 channels, /WHEEL_SCALE)
+        r_wheel = P.wheel_residual(torch, gamma, zx, zy, zs,
+                                   phys["mu"], phys["chi"],
+                                   phys["psi_dot"], phys["Vpx0"], phys["Vpy0"],
+                                   phys["cti"], phys["sti"],
+                                   phys["Msat"], phys["w"], phys["w_dot"]) / C.WHEEL_SCALE
+        sw = (r_wheel ** 2).mean(0)      # [4]
+        loss = loss + sw.sum()
+        for i in range(4):
+            log[f"phys_wheel_w{i+1}"] = float(sw[i].detach())
 
-    # Recompute contact kinematics and body-frame forces from predicted states.
-    Vpx, Vpy, w_z, *_ = P.contact_from_gamma(
-        gamma, phys["psi_dot"], phys["Vpx0"], phys["Vpy0"], phys["cti"], phys["sti"]
-    )
-    N = P._as(gamma, C.N_PER_ROLLER)
-    # mu/chi are [B] in the phys dict; expand to [B,1] so lugre_forces broadcasts
-    # over the wheel axis correctly.
-    mu_b = phys["mu"][:, None] if phys["mu"].ndim == 1 else phys["mu"]
-    chi_b = phys["chi"][:, None] if phys["chi"].ndim == 1 else phys["chi"]
-    Fx, Fy, _ = P.lugre_forces(torch, mu_b, N, chi_b, w_z, Vpx, Vpy, zx, zy, zs)
+        # body (3 channels, scaled inside body_residual)
+        r0, r1, r2 = P.body_residual(torch, gamma, zx, zy, zs,
+                                     phys["mu"], phys["chi"],
+                                     phys["psi_dot"], phys["Vpx0"], phys["Vpy0"],
+                                     phys["cti"], phys["sti"],
+                                     phys["Vx"], phys["Vy"],
+                                     phys["dVx"], phys["dVy"], phys["dpsi_dot"])
+        lx, ly, lyaw = (r0 ** 2).mean(), (r1 ** 2).mean(), (r2 ** 2).mean()
+        loss = loss + lx + ly + lyaw
+        log.update(phys_body_x=float(lx.detach()),
+                   phys_body_y=float(ly.detach()),
+                   phys_body_yaw=float(lyaw.detach()))
 
-    # Current measured platform velocity.
-    state = torch.stack([phys["Vx"], phys["Vy"], phys["psi_dot"]], dim=-1)  # [B, 3]
+    elif variant == "integrated":
+        if Minv is None:
+            raise ValueError("integrated variant requires Minv")
+        Vx_n, Vy_n, pd_n, w_n = P.integrated_step(
+            torch, gamma, zx, zy, zs, phys["mu"], phys["chi"], phys["psi_dot"],
+            phys["Vpx0"], phys["Vpy0"], phys["cti"], phys["sti"],
+            phys["Vx"], phys["Vy"], phys["w"], phys["Msat"], Minv, C.T_S)
+        eVx = (Vx_n - phys["Vx_next"]) / C.PRED_P95["Vx"]
+        eVy = (Vy_n - phys["Vy_next"]) / C.PRED_P95["Vy"]
+        ePd = (pd_n - phys["psi_dot_next"]) / C.PRED_P95["psi_dot"]
+        eW = (w_n - phys["w_next"]) / C.PRED_P95["w"]            # [B,4]
+        lVx, lVy, lPd = (eVx ** 2).mean(), (eVy ** 2).mean(), (ePd ** 2).mean()
+        sw = (eW ** 2).mean(0)                                    # [4]
+        loss = loss + lVx + lVy + lPd + sw.sum()
+        log.update(phys_int_Vx=float(lVx.detach()),
+                   phys_int_Vy=float(lVy.detach()),
+                   phys_int_psidot=float(lPd.detach()))
+        for i in range(4):
+            log[f"phys_int_w{i+1}"] = float(sw[i].detach())
 
-    # Analytical one-step Euler propagation.
-    state_pred = P.forward_velocity_step(
-        state, Fx, Fy, dt,
-        px=P._as(state, C.PX), py=P._as(state, C.PY),
-        ms=_MS, m=C.M_PLATFORM, aX=C.AX, aY=C.AY, Is=C.Is,
-        method="euler",
-    )
-
-    # Target: measured next-step velocity. Only valid where a t+1 sample exists.
-    target = torch.stack([phys["Vx_next"], phys["Vy_next"], phys["psid_next"]], dim=-1)
-    valid = phys["vp_valid"].to(dtype=torch.bool)       # [B]
-    if valid.any():
-        err = state_pred[valid] - target[valid]          # [B_valid, 3]
     else:
-        err = torch.zeros_like(state_pred)
+        raise ValueError(f"Unknown physics_variant: {variant}")
 
-    if normalize == "p95":
-        # Frozen deployment p95 scales. VX/VY p95 not currently in config,
-        # so we use the empirical training-set p95 ~ 0.5 m/s unless overridden.
-        # Keep this explicit so the user can swap in the deployment value.
-        vx_p95 = getattr(C, "VX_P95", 0.5)
-        vy_p95 = getattr(C, "VY_P95", 0.5)
-        wz_p95 = C.WZ_P95
-        scales = torch.tensor([vx_p95, vy_p95, wz_p95],
-                              dtype=err.dtype, device=err.device)
-        err = err / scales
-    elif normalize == "range":
-        rng = (target[valid].max(dim=0)[0] - target[valid].min(dim=0)[0]).clamp_min(1e-6)
-        err = err / rng
+    # ROLLER — MONITOR ONLY (never in loss), per wheel:
+    r_roll = P.roller_residual(torch, gamma, zx, zy, zs,
+                               phys["mu"], phys["chi"],
+                               phys["psi_dot"], phys["Vpx0"], phys["Vpy0"],
+                               phys["cti"], phys["sti"]) / C.ROLLER_SCALE
+    sr = (r_roll ** 2).mean(0)
+    for i in range(4):
+        log[f"phys_roller_w{i+1}_MON"] = float(sr[i].detach())
 
-    mse = (err ** 2).mean(dim=0)                         # [3]
-    loss = mse.mean()
-
-    log = {
-        "vp_Vx": float(mse[0].detach()),
-        "vp_Vy": float(mse[1].detach()),
-        "vp_psi_dot": float(mse[2].detach()),
-        "vp_n_valid": int(valid.sum().item()),
-    }
     return loss, log

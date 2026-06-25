@@ -48,11 +48,11 @@ PY = np.array([L, -L, L, -L])        # py_i  (wc_y)
 M_PLATFORM = 30.0
 M_WHEEL = 1.4
 J_WHEEL = 5.87e-3
-Is = 4.42            # platform yaw inertia (kg m^2), from force-recon physics.py
-AX = 1.6e-2          # COM offset X
-AY = -2.6e-2         # COM offset Y
-P1 = 0.11            # drivetrain viscous (friction_case 1)  -> wheel balance
-P2 = 5.78e-3         # roller-bearing viscous (friction_case 1) -> roller balance
+IS = 4.42              # body yaw inertia (kg m^2); code-verify vs base.toml / run_one.jl
+AX = 1.6e-2            # COM offset X
+AY = -2.6e-2           # COM offset Y
+P1 = 0.11              # drivetrain viscous (friction_case 1)  -> wheel balance
+P2 = 5.78e-3           # roller-bearing viscous (friction_case 1) -> roller balance
 N_TOTAL = M_PLATFORM * 9.81
 # per-roller normal load (run_one.jl N_per_roller); wheel order (h,l),(h,-l),(-h,l),(-h,-l)
 N_PER_ROLLER = np.array([
@@ -68,15 +68,39 @@ LG_STICTION_RATIO = 1.1
 LG_V_STR = 0.01;  LG_W_STR = 0.01
 LG_EPS_REG = 1e-4
 
-# Physics-residual normalisation (residuals divided by these characteristic
-# torques so roller vs wheel terms are comparable; overall scale set by w_phys).
-MAX_TORQUE = 10.0      # wheel actuator cap (base.toml) -> wheel-balance scale
-ROLLER_TAU = 0.5       # characteristic roller torque (~mu*N*(R-Rd)) -> roller scale
+# ---------------------------------------------------------------------------
+# Body-EOM constants for residual / integrated physics-loss variants.
+# Both variants express the same one-step Newton-Euler plant constraint.
+# ---------------------------------------------------------------------------
+MS = M_PLATFORM + 4.0 * M_WHEEL        # 35.6 kg (sprung + wheels)
+
+# Physics-term non-dimensionalisation (diagonal, applied BEFORE squaring).
+MAX_TORQUE = 10.0                      # base.toml actuator cap [N·m]
+WHEEL_SCALE = MAX_TORQUE               # per-wheel torque residual / control-torque max
+BODY_F_SCALE = MS * 9.81 / 4.0         # 87.3 N  (= m_s*g/4, per-wheel static weight)
+BODY_M_SCALE = MAX_TORQUE              # body yaw torque residual / control-torque max
+ROLLER_SCALE = 0.5                     # MONITOR-ONLY scale for the dropped roller term [N·m]
+
+# Body 3x3 mass matrix and inverse (needed by the integrated cell).
+M_BODY = np.array([
+    [MS, 0.0, -M_PLATFORM * AY],
+    [0.0, MS,  M_PLATFORM * AX],
+    [-M_PLATFORM * AY, M_PLATFORM * AX, IS],
+], dtype=np.float64)
+M_BODY_INV = np.linalg.inv(M_BODY)
+
+# Integrated-cell output p95 scales (from variable_scaler_percentiles.csv), frozen.
+PRED_P95 = dict(
+    Vx=1.919951957464218,
+    Vy=0.6734363287687299,
+    psi_dot=2.4079599380493164,
+    w=39.088775253295864,
+)
 
 # 5-phase training curriculum (train_GPU_PINN_v14 forward schedule):
 #   (name, epochs, lr_scale). Physics weight ramps 0->1 over phys_rampup, stays
-#   1 thereafter; supervised weight ramps 1->W_SUP_MIN over grnd_rampdown.
-#   With physics_loss=False the physics weight is forced 0 and supervised stays 1.
+# 1 thereafter; supervised weight ramps 1->W_SUP_MIN over grnd_rampdown.
+# With physics_loss=False the physics weight is forced 0 and supervised stays 1.
 PHASE_SCHEDULE = [
     ("grounding",     100, 1.00),
     ("phys_rampup",    30, 0.25),
@@ -85,6 +109,11 @@ PHASE_SCHEDULE = [
     ("physics",        40, 0.10),
 ]
 W_SUP_MIN = 0.1        # supervised weight floor during the physics-dominant phases
+
+# Warm-start refinement: skip grounding, then append a pure-physics tail.
+REFINE_SCHEDULE = PHASE_SCHEDULE[1:]   # [phys_rampup, overlap, grnd_rampdown, physics]
+PURE_PHYSICS_EPOCHS = 10
+PURE_PHYSICS_LR = 0.10
 
 # ---------------------------------------------------------------------------
 # Sampling
@@ -236,8 +265,9 @@ class ObserverConfig:
     # --- training curriculum / loss (wired in training.py) ---
     phases: str = "supervised"             # "supervised" | "a1_5phase"
     phase_total_epochs: int = 0            # 0 = full PHASE_SCHEDULE (250); else scale to this
-    physics_loss: bool = False             # γ + wheel-balance residuals (χ per-sample)
-    velocity_prop_loss: bool = False       # analytically integrate [Vx,Vy,psi_dot] one step
+    physics_loss: bool = False             # enable physics-based loss term
+    physics_variant: str = "integrated"    # {"residual", "integrated"}
+    warm_from: str = ""                    # weights-only warm-start checkpoint (refinement mode)
 
     target_states: List[str] = field(default_factory=lambda: list(TARGET_STATES))
 
