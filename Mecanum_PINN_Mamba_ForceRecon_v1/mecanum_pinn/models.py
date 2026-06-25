@@ -20,6 +20,7 @@ U (B,L,4) normalized Msat; mu,chi (B,). Force order: [Fpar_1..4, Fperp_1..4].
 from __future__ import annotations
 
 import math
+import platform
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -305,17 +306,33 @@ def set_grad(module: nn.Module, flag: bool) -> None:
         p.requires_grad_(flag)
 
 
+def _triton_available() -> bool:
+    """Triton is required by torch.compile's default Inductor backend, but it is
+    not shipped/available on Windows for PyTorch."""
+    if platform.system() == 'Windows':
+        return False
+    try:
+        import triton
+        return True
+    except Exception:
+        return False
+
+
 def maybe_compile_pinn(model: MecanumPINN, config: Dict) -> MecanumPINN:
     """torch.compile the forward + inverse submodules (CUDA only). Checkpoints
     strip the resulting `_orig_mod.` prefix on save, so they load into an
     uncompiled skeleton. Build -> (load) -> compile is the intended order."""
-    if config.get('compile_enabled') and torch.cuda.is_available():
-        try:
-            model.forward_model = torch.compile(
-                model.forward_model, mode=config.get('compile_mode_forward', 'default'))
-            model.inverse_model = torch.compile(
-                model.inverse_model, mode=config.get('compile_mode_inverse', 'default'))
-            print('[compile] forward + inverse submodules compiled')
-        except Exception as e:                       # pragma: no cover
-            print(f'[compile] disabled ({e!r})')
+    if not config.get('compile_enabled') or not torch.cuda.is_available():
+        return model
+    if not _triton_available():
+        print('[compile] skipped: Triton not available on this platform')
+        return model
+    try:
+        model.forward_model = torch.compile(
+            model.forward_model, mode=config.get('compile_mode_forward', 'default'))
+        model.inverse_model = torch.compile(
+            model.inverse_model, mode=config.get('compile_mode_inverse', 'default'))
+        print('[compile] forward + inverse submodules compiled')
+    except Exception as e:                       # pragma: no cover
+        print(f'[compile] disabled ({e!r})')
     return model

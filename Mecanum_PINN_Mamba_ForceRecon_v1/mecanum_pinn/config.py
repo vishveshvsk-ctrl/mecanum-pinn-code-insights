@@ -12,6 +12,7 @@ Adapted from train_GPU_PINN_v14_py/mecanum_pinn/config.py. Key changes:
 """
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -115,7 +116,9 @@ def build_config(*,
 
     cfg: Dict[str, Any] = {
         'device': None, 'seed': seed, 'amp_enabled': AMP,
-        'compile_enabled': True,
+        # torch.compile's Inductor backend requires Triton, which is unavailable on
+        # Windows for PyTorch. Default to False there; Linux CUDA runs still compile.
+        'compile_enabled': platform.system() != 'Windows',
         'compile_mode_forward': 'default', 'compile_mode_inverse': 'reduce-overhead',
 
         # ---- Data ------------------------------------------------
