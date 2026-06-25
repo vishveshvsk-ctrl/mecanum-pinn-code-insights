@@ -36,6 +36,7 @@ _tmp/
 _nb_read_eval/
 .headroom/
 kimi_start_prompt.txt
+monitoring_location.txt
 
 # --- Logs, DBs, process output ------------------------------------------
 *.log
