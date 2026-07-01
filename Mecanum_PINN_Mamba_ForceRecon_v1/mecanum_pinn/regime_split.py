@@ -139,23 +139,40 @@ def build_regime_config(regime_toml: Path, data_dir, whitelist_csv,
 # Whitelist + discovery + regime sampler  (verbatim logic from A2)
 # ---------------------------------------------------------------------------
 def load_whitelist(csv: Path) -> Optional[set]:
-    import pandas as pd                 # lazy: keep module importable without pandas
+    """Read the whitelist CSV without pandas to avoid a heavy/fragile C-extension
+    import on Windows (pandas + pyarrow together have been the crash point here)."""
+    import csv as _csv
     if not Path(csv).exists():
         print(f"[regime] WARNING: whitelist {csv} missing -> accepting all files")
         return None
-    wl = pd.read_csv(csv, usecols=lambda c: c in ("file", "combined_reco"))
-    if "combined_reco" not in wl.columns or "file" not in wl.columns:
-        print("[regime] WARNING: whitelist lacks file/combined_reco -> accept all")
-        return None
-    keep = wl[~wl["combined_reco"].astype(str).str.startswith("reject")]
-    return set(keep["file"].astype(str))
+    keep: List[str] = []
+    with open(csv, newline="", encoding="utf-8") as fh:
+        reader = _csv.DictReader(fh)
+        if reader.fieldnames is None:
+            print("[regime] WARNING: whitelist empty -> accept all")
+            return None
+        if "file" not in reader.fieldnames:
+            print("[regime] WARNING: whitelist lacks 'file' column -> accept all")
+            return None
+        has_reco = "combined_reco" in reader.fieldnames
+        for row in reader:
+            if has_reco and str(row.get("combined_reco", "")).startswith("reject"):
+                continue
+            keep.append(row["file"])
+    print(f"[whitelist] {len(keep)} approved trajectories from {csv}")
+    return set(keep)
 
 
 def _discover(cfg: RegimeConfig) -> List[Path]:
+    print("[regime-debug] loading whitelist ...")
     wl = load_whitelist(cfg.whitelist_csv)
+    print(f"[regime-debug] whitelist size={len(wl) if wl is not None else 'all'}")
     inc, exc = set(cfg.include_profiles), set(cfg.exclude_profiles)
+    print(f"[regime-debug] globbing {Path(cfg.data_dir).resolve()} ...")
+    arrow_paths = sorted(Path(cfg.data_dir).glob("*.arrow"))
+    print(f"[regime-debug] glob returned {len(arrow_paths)} files")
     out = []
-    for p in sorted(Path(cfg.data_dir).glob("*.arrow")):
+    for p in arrow_paths:
         m = _parse_name(p.name)
         if m is None:
             continue
