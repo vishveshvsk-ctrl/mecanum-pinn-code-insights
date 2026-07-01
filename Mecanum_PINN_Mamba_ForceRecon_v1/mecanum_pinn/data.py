@@ -188,7 +188,6 @@ def _read_decimated(fp: Path, target_hz: Optional[float],
                     load_probes: bool) -> Optional[Dict[str, np.ndarray]]:
     """Read one Arrow, slice to the model columns, downsample to ~target_hz.
     Returns None (so the caller counts skipped_missing) if a column is absent."""
-    print(f"[load-arrow] reading {Path(fp).name} ...")
     # Windows: memory-mapping + multi-threading inside PyArrow can trigger native
     # crashes with some Arrow files / drivers. Use the safest options available.
     kw = {}
@@ -198,13 +197,12 @@ def _read_decimated(fp: Path, target_hz: Optional[float],
     try:
         df = feather.read_feather(fp, **kw)
     except Exception as e:
-        print(f"[load-arrow] feather failed for {Path(fp).name}: {e!r}; trying ipc fallback")
         try:
             with pa.ipc.open_file(fp, memory_map=False) as reader:
                 table = reader.read_all()
             df = table.to_pandas()
-        except Exception as e2:
-            print(f"[load-arrow] ipc fallback also failed for {Path(fp).name}: {e2!r}; skipped")
+        except Exception:
+            print(f"[load] {Path(fp).name}: Arrow read failed ({e!r}); skipped")
             return None
     try:
         S = df[_ARROW_STATE_COLS].to_numpy(dtype=np.float32)
@@ -223,7 +221,6 @@ def _read_decimated(fp: Path, target_hz: Optional[float],
     out = dict(states=S, controls=U, forces=F, times=T)
     if P is not None:
         out["probes"] = P
-    print(f"[load-arrow] {Path(fp).name} -> shapes S={S.shape} F={F.shape}")
     return out
 
 
@@ -330,11 +327,9 @@ def load_all_arrow_trajectories(data_dir,
     killer; reused across runs and concurrent workers — see warm_cache).
     """
     dirs = [Path(data_dir)] if isinstance(data_dir, (str, Path)) else [Path(d) for d in data_dir]
-    print(f"[load-all] data_dir resolved to {[str(d.resolve()) for d in dirs]}")
     arrow_files: List[Path] = []
     for d in dirs:
         arrow_files.extend(sorted(d.glob('*.arrow')))
-    print(f"[load-all] found {len(arrow_files)} .arrow files; cache_dir={cache_dir!r}")
 
     trajectories: List[Dict[str, Any]] = []
     skipped_whitelist = skipped_filter = skipped_unparsed = skipped_missing = 0

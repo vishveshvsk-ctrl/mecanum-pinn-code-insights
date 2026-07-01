@@ -137,12 +137,7 @@ def main() -> None:
     cfg["device"] = device
     cfg.pop("dummy", None)
 
-    print(f"[physics-ablation] effective cfg: seq_len={cfg.get('seq_len')} stride={cfg.get('stride')} "
-          f"ssm_d_model={cfg.get('ssm_d_model')} ssm_d_state={cfg.get('ssm_d_state')} "
-          f"inv_window={cfg.get('inv_window')} batch={cfg.get('batch_size')}")
-
     if platform.system() == "Windows":
-        print("[physics-ablation] Windows detected: using num_workers=0 for DataLoader stability")
         cfg["num_workers"] = 0
         cfg["persistent_workers"] = False
         cfg["pin_memory"] = False
@@ -150,12 +145,10 @@ def main() -> None:
     init_torch_globals(device)
 
     rp = RobotParams().finalize(p1_wheels=0.11, device=device)
-    print("[physics-ablation] loading regime split...")
     tr, va, te = load_regime_split(cfg["regime_toml"], cfg)
     if not tr:
         print("[fatal] regime produced no training trajectories")
         sys.exit(1)
-    print(f"[physics-ablation] building loaders (tr={len(tr)} va={len(va)} te={len(te)} trajectories)...")
     tr_loader, va_loader, te_loader = build_loaders_from_lists(tr, va, te, cfg)
 
     pairs = _resolve_ckpt_pair(final_ckpt, args.adam_ckpt, args.stage)

@@ -55,7 +55,6 @@ def _config_from_checkpoint(ckpt: dict, ckpt_path: Path) -> dict:
     if cfg is not None:
         return dict(cfg)
 
-    print("[cross-eval] checkpoint lacks config; reconstructing from manifest/run dir")
     manifest = load_manifest_at(ckpt_path) or {}
     scope = manifest.get("scope", {})
     summary = manifest.get("config_summary", {})
@@ -120,16 +119,9 @@ def main() -> None:
     cfg["device"] = device
     cfg.pop("dummy", None)                 # never run cross-eval in dummy mode
 
-    # The vram-cfg print above shows build_config defaults; manifest overrides are
-    # applied next. Print the effective values so the user sees what is actually used.
-    print(f"[cross-eval] effective cfg: seq_len={cfg.get('seq_len')} stride={cfg.get('stride')} "
-          f"ssm_d_model={cfg.get('ssm_d_model')} ssm_d_state={cfg.get('ssm_d_state')} "
-          f"inv_window={cfg.get('inv_window')} batch={cfg.get('batch_size')}")
-
-    # Windows spawn + PyArrow/CUDA context in DataLoader workers is a common source
-    # of the 0xC0000005 access violation. Force single-process loading for eval.
+    # Windows spawn + PyArrow/CUDA context in DataLoader workers can trigger native
+    # crashes; force single-process loading for evaluation.
     if platform.system() == "Windows":
-        print("[cross-eval] Windows detected: using num_workers=0 for DataLoader stability")
         cfg["num_workers"] = 0
         cfg["persistent_workers"] = False
         cfg["pin_memory"] = False
@@ -144,32 +136,21 @@ def main() -> None:
     cfg["run_tag"] = args.run_tag or f"{cfg['run_tag']}_on_{target_name}"
 
     rp = RobotParams().finalize(p1_wheels=0.11, device=device)
-    print("[cross-eval] resolved paths:")
-    print(f"  data_dir     = {Path(cfg['data_dir']).resolve()}")
-    print(f"  whitelist_csv= {Path(cfg['whitelist_csv']).resolve()}")
-    print(f"  cache_dir    = {cfg.get('cache_dir')!r}")
-    print("[cross-eval] loading target regime split...")
     tr, va, te = load_regime_split(cfg["regime_toml"], cfg)
-    print(f"[cross-eval] regime split returned tr={len(tr)} va={len(va)} te={len(te)}")
     if not tr:
         print("[fatal] target regime produced no training trajectories")
         sys.exit(1)
-    print(f"[cross-eval] building loaders (tr={len(tr)} va={len(va)} te={len(te)} trajectories)...")
     tr_loader, va_loader, te_loader = build_loaders_from_lists(tr, va, te, cfg)
 
-    print("[cross-eval] building model and loading checkpoint...")
     model = MecanumPINN(cfg, rp).to(device)
     load_phase_checkpoint(model, args.ckpt, map_location=device)
     model = maybe_compile_pinn(model, cfg)
 
-    print("[cross-eval] starting evaluation...")
     metrics: dict = {}
     if args.stage in ("forward", "both"):
-        print("[cross-eval] evaluating forward stage...")
         fwd = evaluate_cross_study(model, va_loader, te_loader, rp, cfg, "forward")
         metrics.update({f"fwd_{k}": v for k, v in fwd.items()})
     if args.stage in ("inverse", "both"):
-        print("[cross-eval] evaluating inverse stage...")
         inv = evaluate_cross_study(model, va_loader, te_loader, rp, cfg, "inverse")
         metrics.update({f"inv_{k}": v for k, v in inv.items()})
         muid = evaluate_mu_id_cross(model, va_loader, te_loader, rp, cfg)

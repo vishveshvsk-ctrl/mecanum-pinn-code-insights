@@ -139,8 +139,9 @@ def build_regime_config(regime_toml: Path, data_dir, whitelist_csv,
 # Whitelist + discovery + regime sampler  (verbatim logic from A2)
 # ---------------------------------------------------------------------------
 def load_whitelist(csv: Path) -> Optional[set]:
-    """Read the whitelist CSV without pandas to avoid a heavy/fragile C-extension
-    import on Windows (pandas + pyarrow together have been the crash point here)."""
+    """Read the whitelist CSV with the stdlib csv module. Avoids importing pandas
+    here, because on Windows the pandas/pyarrow interaction can trigger a native
+    access-violation crash in some environments."""
     import csv as _csv
     if not Path(csv).exists():
         print(f"[regime] WARNING: whitelist {csv} missing -> accepting all files")
@@ -159,20 +160,14 @@ def load_whitelist(csv: Path) -> Optional[set]:
             if has_reco and str(row.get("combined_reco", "")).startswith("reject"):
                 continue
             keep.append(row["file"])
-    print(f"[whitelist] {len(keep)} approved trajectories from {csv}")
     return set(keep)
 
 
 def _discover(cfg: RegimeConfig) -> List[Path]:
-    print("[regime-debug] loading whitelist ...")
     wl = load_whitelist(cfg.whitelist_csv)
-    print(f"[regime-debug] whitelist size={len(wl) if wl is not None else 'all'}")
     inc, exc = set(cfg.include_profiles), set(cfg.exclude_profiles)
-    print(f"[regime-debug] globbing {Path(cfg.data_dir).resolve()} ...")
-    arrow_paths = sorted(Path(cfg.data_dir).glob("*.arrow"))
-    print(f"[regime-debug] glob returned {len(arrow_paths)} files")
     out = []
-    for p in arrow_paths:
+    for p in sorted(Path(cfg.data_dir).glob("*.arrow")):
         m = _parse_name(p.name)
         if m is None:
             continue
@@ -324,14 +319,9 @@ def compute_regime_split(regime_toml, data_dir, whitelist_csv, project_root,
                          test_chi: Optional[float] = None) -> Dict[str, List[str]]:
     """Top-level: regime TOML -> {'train','val','test'} Arrow FILENAME lists.
     `test_chi` overrides the S3 held-out chi (the --test-chi equivalent)."""
-    print(f"[regime-debug] inputs: data_dir={Path(data_dir).resolve()} "
-          f"whitelist_csv={Path(whitelist_csv).resolve()} project_root={Path(project_root).resolve()}")
-    print(f"[regime-debug] building regime config from {regime_toml} ...")
     cfg = build_regime_config(regime_toml, data_dir, whitelist_csv, project_root,
                               override_chi_fold_test=test_chi)
-    print(f"[regime-debug] discovering files ...")
     files = _discover(cfg)
-    print(f"[regime-debug] discovered {len(files)} files; splitting ...")
     split = _split_files(files, cfg)
     print(f"[regime] {cfg.regime_name}: train={len(split['train'])} "
           f"val={len(split['val'])} test={len(split['test'])} "
