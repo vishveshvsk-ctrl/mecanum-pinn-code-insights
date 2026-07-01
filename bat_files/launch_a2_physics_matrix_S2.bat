@@ -12,7 +12,7 @@ set PYTHONUTF8=1
 set PY=C:\Users\vishv\miniforge3\envs\myenv\python.exe
 set CACHE=C:\Users\vishv\mecanum_cache_decim
 set SCALER=..\data\Simulation_Data_MecanumSlipSpin_LugreAdamov\variable_scaler_percentiles.csv
-set WARM=..\observer_v1_py\runs\S2_train_w32_non_phys_max_norm_b1024\checkpoint.pt
+set WARM=observer_v1_py\runs\S2_train_w32_non_phys_max_norm_b1024\checkpoint.pt
 set COMMON=--regimes S2_train --windows 32 --per-run-batch 1024 --phase-epochs 60 --norm max --scaler-csv "%SCALER%" --cache-dir "%CACHE%" --dl-workers 2 --max-parallel 1 --heartbeat 120
 
 echo === A2 physics-loss matrix: S2 fold ===
@@ -22,8 +22,8 @@ echo [S2 1/2] integrated
   --physics-loss --physics-variant integrated ^
   --warm-from "%WARM%" ^
   --tag-suffix _phys_integrated_b1024 ^
-  --log-dir ..\observer_v1_py\runs\_parallel_logs_phys_integrated_S2 ^
-  --csv ..\observer_v1_py\runs\sweep_results_phys_integrated_S2.csv
+  --log-dir observer_v1_py\runs\_parallel_logs_phys_integrated_S2 ^
+  --csv observer_v1_py\runs\sweep_results_phys_integrated_S2.csv
 if errorlevel 1 exit /b 1
 
 echo [S2 2/2] residual
@@ -31,8 +31,8 @@ echo [S2 2/2] residual
   --physics-loss --physics-variant residual ^
   --warm-from "%WARM%" ^
   --tag-suffix _phys_residual_b1024 ^
-  --log-dir ..\observer_v1_py\runs\_parallel_logs_phys_residual_S2 ^
-  --csv ..\observer_v1_py\runs\sweep_results_phys_residual_S2.csv
+  --log-dir observer_v1_py\runs\_parallel_logs_phys_residual_S2 ^
+  --csv observer_v1_py\runs\sweep_results_phys_residual_S2.csv
 if errorlevel 1 exit /b 1
 
 echo === S2 fold complete ===
