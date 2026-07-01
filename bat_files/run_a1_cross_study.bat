@@ -16,7 +16,7 @@ REM ============================================================================
 setlocal enabledelayedexpansion
 
 set CODE_ROOT=C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights
-set ENV_NAME=myenv
+set ENV_NAME=Vsk_venv
 set PKG=Mecanum_PINN_Mamba_ForceRecon_v1
 set CKPT_DIR=%PKG%\checkpoints_mamba_v1
 

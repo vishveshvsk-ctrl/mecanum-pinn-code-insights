@@ -18,11 +18,13 @@ def save_training_manifest(*, ckpt_dir, run_tag: str,
                            test_names: Sequence[str],
                            config_summary: Dict[str, Any],
                            stages_trained: Sequence[str],
-                           forward_ckpt_ref: str = "") -> None:
+                           forward_ckpt_ref: str = "",
+                           regime: str = "") -> None:
     out_dir = Path(ckpt_dir) / run_tag
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         'run_tag': run_tag,
+        'regime': str(regime),
         'scope': {'profiles': list(profiles),
                   'mu_values': list(mu_values),
                   'chi_values': list(chi_values),

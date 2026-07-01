@@ -39,6 +39,14 @@ _OPPOSITE_REGIME = {
 }
 
 
+def _infer_regime_from_run_tag(run_tag: str) -> str:
+    """Best-effort regime inference from the run tag for legacy manifests."""
+    for name in ("S1_train", "S2_train", "S3_chi_kfold"):
+        if name in run_tag:
+            return f"observer_v1_py/regimes/{name}.toml"
+    return ""
+
+
 def _config_from_checkpoint(ckpt: dict, ckpt_path: Path) -> dict:
     """Recover the training config from the checkpoint payload if present,
     otherwise fall back to the checkpoint's manifest + build_config defaults."""
@@ -58,7 +66,21 @@ def _config_from_checkpoint(ckpt: dict, ckpt_path: Path) -> dict:
     cfg["data_dir"] = Path(scope.get("data_dir", cfg["data_dir"]))
     cfg["whitelist_path"] = Path(scope.get("whitelist_path", cfg["whitelist_path"]))
     cfg["seed"] = scope.get("seed", cfg["seed"])
-    cfg["regime_toml"] = manifest.get("regime", "")
+
+    # regime: manifest (new) -> metrics.json (old) -> run_tag inference
+    regime = manifest.get("regime", "")
+    if not regime:
+        metrics_path = ckpt_path.parent / "metrics.json"
+        if metrics_path.exists():
+            try:
+                metrics = json.loads(metrics_path.read_text())
+                regime = metrics.get("regime", "")
+            except Exception:
+                pass
+    if not regime:
+        regime = _infer_regime_from_run_tag(manifest.get("run_tag", ""))
+    cfg["regime_toml"] = regime
+
     cfg.update({k: v for k, v in summary.items() if k in cfg})
     return cfg
 

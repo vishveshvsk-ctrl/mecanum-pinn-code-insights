@@ -152,7 +152,8 @@ def _manifest(cfg, tag, stages, tr, va, te, fwd_ref=""):
         data_dir=cfg['data_dir'], whitelist_path=cfg['whitelist_path'], seed=cfg['seed'],
         train_names=[t['name'] for t in tr], val_names=[t['name'] for t in va],
         test_names=[t['name'] for t in te], config_summary=_summary(cfg),
-        stages_trained=stages, forward_ckpt_ref=fwd_ref)
+        stages_trained=stages, forward_ckpt_ref=fwd_ref,
+        regime=str(cfg.get('regime_toml') or ''))
 
 
 def _report_mu(model, va_loader, te_loader, te_trajs, rp, cfg, k=5) -> Dict[str, float]:
