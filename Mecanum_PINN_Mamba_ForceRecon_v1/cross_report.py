@@ -37,21 +37,43 @@ def _gap(cross: Optional[float], same: Optional[float]) -> Optional[float]:
     return float(cross) - float(same)
 
 
-def _extract_core(metrics: dict) -> dict:
-    """Pull the headline same/cross numbers from a metrics dict."""
+def _sum_keys(metrics: dict, keys: List[str]) -> Optional[float]:
+    vals = [metrics.get(k) for k in keys]
+    if any(v is None for v in vals):
+        return None
+    return sum(float(v) for v in vals)
+
+
+def _extract_core(metrics: dict, split: bool = True) -> dict:
+    """Pull headline same/cross numbers.
+
+    cross_metrics.json has same_/cross_ prefixes for every loss component.
+    training metrics.json only stores the final test (cross-subset) numbers
+    with bare fwd_/inv_ prefixes, so we leave the same-subset columns empty.
+    """
+    if split:
+        return {
+            "fwd_same_total":  _sum_keys(metrics, ["fwd_same_grnd", "fwd_same_phys"]),
+            "fwd_cross_total": _sum_keys(metrics, ["fwd_cross_grnd", "fwd_cross_phys"]),
+            "inv_same_total":  _sum_keys(metrics, ["inv_same_grnd", "inv_same_cons", "inv_same_phys"]),
+            "inv_cross_total": _sum_keys(metrics, ["inv_cross_grnd", "inv_cross_cons", "inv_cross_phys"]),
+            "mu_mae_inv_same":  metrics.get("same_mu_mae_inv"),
+            "mu_mae_inv_cross": metrics.get("cross_mu_mae_inv"),
+        }
+    # training metrics.json: final test = cross-subset
     return {
-        "fwd_same_total":  _get(metrics, ["fwd_same_total"]),
-        "fwd_cross_total": _get(metrics, ["fwd_cross_total"]),
-        "inv_same_total":  _get(metrics, ["inv_same_total"]),
-        "inv_cross_total": _get(metrics, ["inv_cross_total"]),
-        "mu_mae_inv_same":  _get(metrics, ["same_mu_mae_inv"]),
-        "mu_mae_inv_cross": _get(metrics, ["cross_mu_mae_inv"]),
+        "fwd_same_total":  None,
+        "fwd_cross_total": _sum_keys(metrics, ["fwd_grnd", "fwd_phys"]),
+        "inv_same_total":  None,
+        "inv_cross_total": _sum_keys(metrics, ["inv_grnd", "inv_cons", "inv_phys"]),
+        "mu_mae_inv_same":  None,
+        "mu_mae_inv_cross": metrics.get("mu_mae_inv"),
     }
 
 
 def _row_from_metrics(run_tag: str, regime: str, metrics: dict,
                       source: str = "training") -> dict:
-    core = _extract_core(metrics)
+    core = _extract_core(metrics, split=False)
     return {
         "run_tag": run_tag,
         "source": source,
@@ -91,7 +113,7 @@ def collect_rows(ckpt_dir: Path) -> List[dict]:
             except Exception as e:
                 print(f"[report] skipping bad cross_metrics.json in {run_dir.name}: {e}")
                 continue
-            core = _extract_core(cross)
+            core = _extract_core(cross, split=True)
             rows.append({
                 "run_tag": cross.get("run_tag", run_dir.name),
                 "source": "cross_eval",
