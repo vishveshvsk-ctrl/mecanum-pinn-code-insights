@@ -80,6 +80,14 @@ python observer_v1_py/train_observer.py \
 
 # aggregate -> state_observability.csv + figures (same-vs-cross)
 python observer_v1_py/make_observability_report.py
+
+# physics-ablation: final checkpoint vs last Adam-only phase snapshot
+python observer_v1_py/physics_ablation_eval.py \
+    --final-ckpt observer_v1_py/runs/S1_train_w32/checkpoint.pt
+
+# aggregate physics-ablation records
+python observer_v1_py/physics_ablation_report.py
+# -> observer_v1_py/report/physics_ablation_report.csv
 ```
 
 Launcher knobs (shared idiom with A1 — see `code_insights/parallel_sweep.py`):
@@ -94,6 +102,27 @@ pinned to a disjoint CPU-core block (`taskset`); keep N·`--dl-workers` ≤ core
 The per-run `--vram {6,24}` preset still exists for one-off manual runs (sets
 batch/jobs/precision/cache together), but the launcher is machine-agnostic.
 
+## Physics-ablation study (final vs Adam-only)
+
+`physics_ablation_eval.py` compares the final `checkpoint.pt` against the last
+fully-Adam phase snapshot (default: the latest `phase_ckpts/physics_*.pt`) on both
+the same-subset (val) and cross-subset (test) splits. This answers whether the
+future physics-only refinement tail is worth the extra compute.
+
+```bash
+python observer_v1_py/physics_ablation_eval.py \
+    --final-ckpt observer_v1_py/runs/S1_train_w32/checkpoint.pt
+
+# explicit Adam-only snapshot
+python observer_v1_py/physics_ablation_eval.py \
+    --final-ckpt observer_v1_py/runs/S1_train_w32/checkpoint.pt \
+    --adam-ckpt observer_v1_py/runs/S1_train_w32/phase_ckpts/grnd_rampdown_ep119.pt
+```
+
+The script writes `physics_ablation_metrics.json` in the run directory. Aggregate
+all records with `physics_ablation_report.py` (negative deltas mean the final
+model is better).
+
 ## Layout
 
 ```
@@ -102,6 +131,8 @@ observer_v1_py/
 ├── launch_parallel.py           machine-agnostic launcher (N concurrent jobs, warm-cache,
 │                                MPS + affinity); thin adapter over parallel_sweep.py
 ├── make_observability_report.py CSV + static figures (same-vs-cross)
+├── physics_ablation_eval.py     final checkpoint vs Adam-only phase snapshot
+├── physics_ablation_report.py   aggregate physics-ablation metrics
 ├── regimes/                    A/D/E/S1/S2/S3 + base.toml (data-subset configs)
 └── mecanum_observer/
     ├── config.py      constants, column contract, hyperparameters
@@ -111,7 +142,8 @@ observer_v1_py/
     ├── physics.py     torch LuGre port + roller/wheel torque-balance residuals
     ├── losses.py      per-state normalised MSE + physics loss
     ├── training.py    WindowStream + 5-phase curriculum
-    └── evaluation.py  per-state/-wheel/-bin RMSE, same-vs-cross, derived ω_z
+    └── evaluation.py  per-state/-wheel/-bin RMSE, same-vs-cross, derived ω_z,
+                       plus model-scoring helper for ablation studies
 ```
 
 ## Output to hand back to Approach 1

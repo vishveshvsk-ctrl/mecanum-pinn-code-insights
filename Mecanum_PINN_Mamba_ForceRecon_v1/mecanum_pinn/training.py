@@ -46,12 +46,15 @@ def _clean_sd(sd: Dict) -> Dict:
 
 
 def save_phase_checkpoint(model, optimizer, history, ckpt_dir, run_tag,
-                          stage: str, phase: str, extra: Optional[Dict] = None):
+                          stage: str, phase: str, extra: Optional[Dict] = None,
+                          config: Optional[Dict] = None):
     out_dir = Path(ckpt_dir) / run_tag
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {'model': _clean_sd(model.state_dict()),
                'opt': optimizer.state_dict() if optimizer is not None else None,
                'history': history, 'stage': stage, 'phase': phase}
+    if config is not None:
+        payload['config'] = config
     if extra:
         payload.update(extra)
     torch.save(payload, out_dir / f"{stage}_{phase}.pth")
@@ -187,7 +190,7 @@ def _run_phase(model, tr_loader, va_loader, rp, cfg, stage, history, next_ep,
             break
     next_ep += ep + 1
     save_phase_checkpoint(model, optimizer, history, cfg['ckpt_dir'], cfg['run_tag'],
-                          stage, phase_name)
+                          stage, phase_name, config=cfg)
     return next_ep
 
 
@@ -248,7 +251,7 @@ def run_lbfgs_refine(model, tr_loader, rp, cfg, stage, history):
     except Exception as e:                                   # pragma: no cover
         print(f"[{stage}/lbfgs] aborted: {e}")
     save_phase_checkpoint(model, optimizer, history, cfg['ckpt_dir'], cfg['run_tag'],
-                          stage, 'lbfgs')
+                          stage, 'lbfgs', config=cfg)
     return model, history
 
 

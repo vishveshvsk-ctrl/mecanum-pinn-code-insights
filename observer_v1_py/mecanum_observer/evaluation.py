@@ -45,7 +45,16 @@ def evaluate_observer(cfg: ObserverConfig, run_dir: Path, device: torch.device
     st = torch.load(run_dir / "checkpoint.pt", map_location=device,
                     weights_only=False)
     model.load_state_dict(st["model"]); model.eval()
+    return evaluate_observer_model(model, cfg, nrm, device)
 
+
+@torch.no_grad()
+def evaluate_observer_model(model, cfg: ObserverConfig, nrm, device: torch.device
+                            ) -> pd.DataFrame:
+    """Score an already-loaded model on the same-subset (val) and cross-subset
+    (test) splits. Used by make_observability_report.py and the physics-ablation
+    study so the model/data are not reloaded between final and Adam-only runs."""
+    model.eval()
     splits = D.split_files(D.discover(cfg), cfg)
     rows: List[dict] = []
     for split_key, label in (("val", "same_subset"), ("test", "cross_subset")):

@@ -18,8 +18,8 @@
 #   # model sweep: ssm_d_model x ssm_d_state grid, crossed with windows x regimes
 #   python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --ssm-dims 32x16,48x16,32x24
 #
-# Resume-safe: runs whose checkpoints_mamba_v1/<label>/metrics.json exists are
-# skipped. Results land in one ranking CSV (MAE(inv)/MAE(fwd)/inv-fwd div + losses).
+# Resume-safe: runs whose Mecanum_PINN_Mamba_ForceRecon_v1/runs/checkpoints/<label>/metrics.json
+# exist are skipped. Results land in one ranking CSV (MAE(inv)/MAE(fwd)/inv-fwd div + losses).
 # =============================================================================
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ import parallel_sweep as ps                                        # noqa: E402
 PKG = "Mecanum_PINN_Mamba_ForceRecon_v1"
 ENTRY = f"{PKG}/train.py"
 REGIMES = "observer_v1_py/regimes"          # shared regime TOMLs (same selection as A2)
+PKG_ROOT = Path(__file__).resolve().parent   # absolute path to Mecanum_PINN_Mamba_ForceRecon_v1/
 
 
 def build_jobs(args):
@@ -107,16 +108,23 @@ def main():
                     help="scale all phase epochs (0.5 ~halves -> ~220 ep; ~0.27 -> ~120 ep)")
     ap.add_argument("--extra", nargs="*", default=[],
                     help="extra tokens appended verbatim to each job (e.g. --extra --set lr=2e-3)")
-    ap.add_argument("--cache-dir", default=f"{PKG}/cache_decim")
-    ap.add_argument("--ckpt-dir", default="checkpoints_mamba_v1")
+    ap.add_argument("--cache-dir", default=str(PKG_ROOT / "cache_decim"))
+    ap.add_argument("--ckpt-dir", default=str(PKG_ROOT / "runs" / "checkpoints"))
     ap.add_argument("--cores-per-job", type=int, default=4)
     ap.add_argument("--python", default=sys.executable)
-    ap.add_argument("--log-dir", default=f"{PKG}/runs/_parallel_logs")
-    ap.add_argument("--csv", default=f"{PKG}/runs/sweep_results.csv")
+    ap.add_argument("--log-dir", default=str(PKG_ROOT / "runs" / "_parallel_logs"))
+    ap.add_argument("--csv", default=str(PKG_ROOT / "runs" / "sweep_results.csv"))
     ap.add_argument("--warm-cache", action="store_true",
                     help="single-process decimated-cache pre-build before fan-out")
     ap.add_argument("--heartbeat", type=float, default=120.0,
                     help="seconds between terminal heartbeats + sweep_status.txt refresh")
+    ap.add_argument("--cross-eval", action="store_true",
+                    help="after the main sweep, evaluate each S1/S2 checkpoint on the "
+                         "opposite regime's test split (via cross_eval.py)")
+    ap.add_argument("--cross-report", action="store_true",
+                    help="after the sweep (and --cross-eval if set), run cross_report.py")
+    ap.add_argument("--cross-stage", choices=["forward", "inverse", "both"], default="both",
+                    help="stage passed to cross_eval.py (default: both)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true", help="re-run even completed jobs")
     args = ap.parse_args()
@@ -133,10 +141,37 @@ def main():
         ps.run_blocking("warm_a1", PKG, ENTRY, warm_args, args.python,
                         ps.ROOT / args.log_dir / "warm_a1.log")
 
-    ps.run_sweep(jobs, max_parallel=args.max_parallel, python=args.python,
-                 log_dir=args.log_dir, cores_per_job=args.cores_per_job,
-                 csv_path=args.csv, dry_run=args.dry_run, force=args.force,
-                 heartbeat_seconds=args.heartbeat)
+    result = ps.run_sweep(jobs, max_parallel=args.max_parallel, python=args.python,
+                          log_dir=args.log_dir, cores_per_job=args.cores_per_job,
+                          csv_path=args.csv, dry_run=args.dry_run, force=args.force,
+                          heartbeat_seconds=args.heartbeat)
+
+    if args.cross_eval and not args.dry_run:
+        done_labels = set(result.get("done", []))
+        cross_jobs = []
+        for j in jobs:
+            if j.label not in done_labels:
+                continue
+            regime = Path(j.args[j.args.index("--regime") + 1]).stem
+            if regime not in ("S1_train", "S2_train"):
+                continue
+            ckpt = f"{args.ckpt_dir}/{j.label}/inverse_lbfgs.pth"
+            cross_jobs.append(ps.Job(
+                label=f"cross_{j.label}", pkg_dir=PKG,
+                entry=f"{PKG}/cross_eval.py",
+                args=["--ckpt", ckpt, "--stage", args.cross_stage],
+                run_dir=None))
+        if cross_jobs:
+            print(f"[launch-a1] cross-eval: {len(cross_jobs)} jobs")
+            ps.run_sweep(cross_jobs, max_parallel=args.max_parallel, python=args.python,
+                         log_dir=args.log_dir, cores_per_job=args.cores_per_job,
+                         csv_path=None, dry_run=False, force=args.force,
+                         heartbeat_seconds=args.heartbeat)
+
+    if args.cross_report and not args.dry_run:
+        ps.run_blocking("cross_report", PKG, f"{PKG}/cross_report.py",
+                        ["--ckpt-dir", args.ckpt_dir], args.python,
+                        ps.ROOT / args.log_dir / "cross_report.log")
 
 
 if __name__ == "__main__":

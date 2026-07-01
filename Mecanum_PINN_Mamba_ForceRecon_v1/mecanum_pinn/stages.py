@@ -21,7 +21,8 @@ from .config import apply_dummy_overrides, build_config, build_run_tag
 from .data import (build_loaders_from_lists, build_loaders_with_split,
                    init_torch_globals, load_all_arrow_trajectories,
                    load_regime_split, parse_whitelist, warm_cache)
-from .evaluation import estimate_mu, evaluate_mu_id, evaluate_on_test
+from .evaluation import (estimate_mu, evaluate_cross_study,
+                         evaluate_mu_id, evaluate_mu_id_cross, evaluate_on_test)
 from .manifest import save_training_manifest
 from .models import MecanumPINN, maybe_compile_pinn
 from .physics import RobotParams
@@ -155,14 +156,13 @@ def _manifest(cfg, tag, stages, tr, va, te, fwd_ref=""):
 
 
 def _report_mu(model, va_loader, te_loader, te_trajs, rp, cfg, k=5) -> Dict[str, float]:
-    # test-time mu identification (val + test) + a few per-trajectory estimates.
-    # Returns the TEST mu-id dict (the deliverable metric) for the metrics harvest.
-    evaluate_mu_id(model, va_loader, rp, cfg, 'val')
-    test = evaluate_mu_id(model, te_loader, rp, cfg, 'test')
+    # test-time mu identification on same-subset (val) and cross-subset (test),
+    # plus a few per-trajectory estimates on the cross-subset trajectories.
+    out = evaluate_mu_id_cross(model, va_loader, te_loader, rp, cfg)
     for traj in te_trajs[:k]:
         mu_h = estimate_mu(model, traj, rp, cfg)
         print(f"{traj['name']}  label mu={traj['mu']:.3f}  |  est mu={mu_h:.3f}")
-    return test
+    return out
 
 
 def run_main(*, config_kwargs: Optional[Dict[str, Any]] = None,
@@ -247,7 +247,7 @@ def run_main(*, config_kwargs: Optional[Dict[str, Any]] = None,
     if args.stage == 'forward':
         model, hist = train_forward(rp, tr_loader, va_loader, cfg)
         plot_history(hist, 'forward')
-        fwd = evaluate_on_test(model, te_loader, rp, cfg, 'forward', 'test/forward')
+        fwd = evaluate_cross_study(model, va_loader, te_loader, rp, cfg, 'forward')
         _manifest(cfg, cfg['run_tag'], ['forward'], tr, va, te)
         _write_metrics(cfg, {f"fwd_{k}": v for k, v in fwd.items()})
 
@@ -257,7 +257,7 @@ def run_main(*, config_kwargs: Optional[Dict[str, Any]] = None,
         model = maybe_compile_pinn(model, cfg)
         model, hist = train_inverse(rp, tr_loader, va_loader, cfg, model)
         plot_history(hist, 'inverse')
-        inv = evaluate_on_test(model, te_loader, rp, cfg, 'inverse', 'test/inverse')
+        inv = evaluate_cross_study(model, va_loader, te_loader, rp, cfg, 'inverse')
         muid = _report_mu(model, va_loader, te_loader, te, rp, cfg)
         _manifest(cfg, cfg['run_tag'], ['inverse'], tr, va, te, fwd_ref=str(args.ckpt[0]))
         _write_metrics(cfg, {**{f"inv_{k}": v for k, v in inv.items()}, **(muid or {})})
@@ -265,11 +265,11 @@ def run_main(*, config_kwargs: Optional[Dict[str, Any]] = None,
     elif args.stage == 'both':
         model, hist_f = train_forward(rp, tr_loader, va_loader, cfg)
         plot_history(hist_f, 'forward')
-        fwd = evaluate_on_test(model, te_loader, rp, cfg, 'forward', 'test/forward')
+        fwd = evaluate_cross_study(model, va_loader, te_loader, rp, cfg, 'forward')
         _manifest(cfg, cfg['run_tag'], ['forward'], tr, va, te)
         model, hist_i = train_inverse(rp, tr_loader, va_loader, cfg, model)
         plot_history(hist_i, 'inverse')
-        inv = evaluate_on_test(model, te_loader, rp, cfg, 'inverse', 'test/inverse')
+        inv = evaluate_cross_study(model, va_loader, te_loader, rp, cfg, 'inverse')
         muid = _report_mu(model, va_loader, te_loader, te, rp, cfg)
         _manifest(cfg, cfg['run_tag'], ['forward', 'inverse'], tr, va, te)
         _write_metrics(cfg, {**{f"fwd_{k}": v for k, v in fwd.items()},
@@ -284,8 +284,11 @@ def run_main(*, config_kwargs: Optional[Dict[str, Any]] = None,
             for st in ('forward', 'inverse'):
                 if st in ckpt['history']:
                     plot_history(ckpt['history'], st)
-        evaluate_on_test(model, te_loader, rp, cfg, 'forward', 'test/forward')
-        evaluate_on_test(model, te_loader, rp, cfg, 'inverse', 'test/inverse')
-        _report_mu(model, va_loader, te_loader, te, rp, cfg)
+        evaluate_cross_study(model, va_loader, te_loader, rp, cfg, 'forward')
+        evaluate_cross_study(model, va_loader, te_loader, rp, cfg, 'inverse')
+        evaluate_mu_id_cross(model, va_loader, te_loader, rp, cfg)
+        for traj in te[:5]:
+            mu_h = estimate_mu(model, traj, rp, cfg)
+            print(f"{traj['name']}  label mu={traj['mu']:.3f}  |  est mu={mu_h:.3f}")
 
     print("\n[done] run complete.")

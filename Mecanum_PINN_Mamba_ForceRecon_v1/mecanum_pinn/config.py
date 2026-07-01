@@ -17,6 +17,15 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
+_PKG_ROOT = Path(__file__).resolve().parent.parent  # Mecanum_PINN_Mamba_ForceRecon_v1/
+
+# All training artifacts default INSIDE the package directory so runs never
+# scatter checkpoints/figures into the parent code_insights/ folder regardless
+# of the working directory from which train.py is invoked.
+_DEFAULT_CKPT_DIR = str(_PKG_ROOT / "runs" / "checkpoints")
+_DEFAULT_FIGURE_DIR = str(_PKG_ROOT / "runs" / "figures")
+_DEFAULT_CACHE_DIR = str(_PKG_ROOT / "cache_decim")
+
 _DEFAULT_SEED = 42
 
 
@@ -95,9 +104,9 @@ def build_config(*,
                  regime_toml: Optional[str] = None,        # observer_v1_py/regimes/*.toml
                  whitelist_csv: str = 'diagnostics_combined.csv',
                  test_chi: Optional[float] = None,         # S3 held-out chi override
-                 cache_dir: Optional[str] = None,          # decimated-500Hz .npz cache (''/None=off)
-                 ckpt_dir: str = 'checkpoints_mamba_v1',
-                 figure_dir: str = 'figures_mamba_v1',
+                 cache_dir: Optional[str] = _DEFAULT_CACHE_DIR,  # decimated-500Hz .npz cache (''/None=off)
+                 ckpt_dir: str = _DEFAULT_CKPT_DIR,
+                 figure_dir: str = _DEFAULT_FIGURE_DIR,
                  run_tag: str = 'run01',
                  dummy: bool = False,
                  seed: int = _DEFAULT_SEED) -> Dict[str, Any]:

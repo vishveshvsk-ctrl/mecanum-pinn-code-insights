@@ -52,12 +52,15 @@ python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --dry-run        # pr
 python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --windows 16 --ssm-dims 32x16,48x16
 ```
 
-**Resume-safe**: a run whose `checkpoints_mamba_v1/<label>/metrics.json` exists is
-skipped (`--force` overrides). An interrupted A1 run restarts from scratch (A1 has
-no mid-run epoch resume — the marker is run-level). Each sweep writes one ranking
-CSV (`runs/sweep_results.csv`) with every run's **MAE(inv) / MAE(fwd) / inv-fwd
-divergence** + final forward/inverse test losses. On Linux each job is pinned to a
-disjoint CPU-core block (`taskset`); keep N·`--dl-workers` ≤ cores and ≤ 8 total.
+**Resume-safe**: a run whose `Mecanum_PINN_Mamba_ForceRecon_v1/runs/checkpoints/<label>/metrics.json`
+exists is skipped (`--force` overrides). An interrupted A1 run restarts from scratch
+(A1 has no mid-run epoch resume — the marker is run-level). Each sweep writes one
+ranking CSV (`Mecanum_PINN_Mamba_ForceRecon_v1/runs/sweep_results.csv`) with every
+run's **MAE(inv) / MAE(fwd) / inv-fwd divergence** + final forward/inverse test
+losses. Checkpoints and figures are kept inside the package under
+`Mecanum_PINN_Mamba_ForceRecon_v1/runs/` so they do not spill into the parent
+`code_insights/` directory. On Linux each job is pinned to a disjoint CPU-core block
+(`taskset`); keep N·`--dl-workers` ≤ cores and ≤ 8 total.
 
 ### Default sweep grid (tentative — exact model knobs undecided)
 
@@ -86,12 +89,87 @@ Run `python _tmp/bench_concurrency.py --approach a1 --warm-cache` on each box to
 find the speedup knee, then set `--max-parallel` near it (back off once efficiency
 drops below ~0.6).
 
+## Cross-subset generalization (S1↔S2)
+
+The shared S1/S2 regime TOMLs (`observer_v1_py/regimes/S1_train.toml` and
+`S2_train.toml`) split the trajectory library by excitation coverage: each regime's
+**val** split is the *same* fold as training, while the **test** split is the
+*opposite* fold. During training, `metrics.json` now explicitly records
+`fwd_same_*` / `fwd_cross_*`, `inv_same_*` / `inv_cross_*`, and
+`same_mu_mae_inv` / `cross_mu_mae_inv` so the same-vs-cross gap is visible
+immediately.
+
+To evaluate a finished S1 checkpoint on the S2 test set (or vice-versa):
+
+```bash
+# infers the opposite regime from the checkpoint's manifest
+python Mecanum_PINN_Mamba_ForceRecon_v1/cross_eval.py \
+    --ckpt Mecanum_PINN_Mamba_ForceRecon_v1/runs/checkpoints/a1_S1_train_w16/inverse_lbfgs.pth
+
+# or specify the target regime explicitly
+python Mecanum_PINN_Mamba_ForceRecon_v1/cross_eval.py \
+    --ckpt .../a1_S1_train_w16/inverse_lbfgs.pth \
+    --regime observer_v1_py/regimes/S2_train.toml
+```
+
+`cross_eval.py` writes `cross_metrics.json` next to the checkpoint. To aggregate all
+same/cross metrics into a CSV and print the gap table:
+
+```bash
+python Mecanum_PINN_Mamba_ForceRecon_v1/cross_report.py
+# -> Mecanum_PINN_Mamba_ForceRecon_v1/runs/cross_report.csv
+```
+
+The launcher can also fan out cross-eval jobs automatically after the main sweep:
+
+```bash
+python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --warm-cache --max-parallel 4 \
+    --cross-eval --cross-report
+```
+
+`--cross-eval` runs `cross_eval.py` for every completed S1/S2 job against the
+opposite regime; `--cross-report` runs `cross_report.py` at the end. S3 chi k-fold
+runs are skipped by `--cross-eval` because they do not have an S1/S2 opposite fold.
+
+## Physics-ablation study (final vs Adam-only)
+
+To decide whether the L-BFGS physics refinement is worth the extra compute,
+`physics_ablation_eval.py` compares the final checkpoint against the last
+Adam-only checkpoint (`inverse_physics.pth` / `forward_physics.pth`) on both the
+same-subset (val) and cross-subset (test) splits.
+
+```bash
+python Mecanum_PINN_Mamba_ForceRecon_v1/physics_ablation_eval.py \
+    --final-ckpt Mecanum_PINN_Mamba_ForceRecon_v1/runs/checkpoints/a1_S1_train_w16/inverse_lbfgs.pth
+
+# evaluate only the inverse stage with an explicit Adam-only checkpoint
+python Mecanum_PINN_Mamba_ForceRecon_v1/physics_ablation_eval.py \
+    --final-ckpt .../a1_S1_train_w16/inverse_lbfgs.pth \
+    --adam-ckpt  .../a1_S1_train_w16/inverse_physics.pth \
+    --stage inverse
+```
+
+The script writes `physics_ablation_metrics.json` next to the final checkpoint.
+Aggregate all ablation records into a CSV and delta table:
+
+```bash
+python Mecanum_PINN_Mamba_ForceRecon_v1/physics_ablation_report.py
+# -> Mecanum_PINN_Mamba_ForceRecon_v1/runs/physics_ablation_report.csv
+```
+
+Negative deltas in the report mean the final (refined) model outperforms the
+Adam-only model.
+
 ## Layout
 
 ```
 Mecanum_PINN_Mamba_ForceRecon_v1/
 ├── train.py              entry (cache ON by default; CLI overrides -> run_main)
 ├── launch_parallel.py    machine-agnostic launcher (thin adapter over parallel_sweep.py)
+├── cross_eval.py         evaluate a trained checkpoint on another regime's test split
+├── cross_report.py       aggregate same/cross metrics into a CSV + gap table
+├── physics_ablation_eval.py    final model vs Adam-only model on same/cross splits
+├── physics_ablation_report.py  aggregate physics-ablation metrics
 ├── smoke_test.py         shape/wiring smoke test (CPU-OK, no data)
 └── mecanum_pinn/
     ├── config.py     build_config (+ cache_dir knob), build_run_tag, vram tiers
@@ -102,6 +180,6 @@ Mecanum_PINN_Mamba_ForceRecon_v1/
     ├── losses.py     forward/inverse losses (w_cons=0 monitor-only)
     ├── training.py   5-phase schedule + EarlyStopper + L-BFGS refine
     ├── stages.py     run_main (forward|inverse|both|figures), CLI overrides, metrics.json
-    ├── evaluation.py evaluate_on_test, estimate_mu, evaluate_mu_id (the deliverable metric)
+    ├── evaluation.py evaluate_on_test, estimate_mu, evaluate_mu_id, same/cross helpers
     └── plotting.py / manifest.py
 ```

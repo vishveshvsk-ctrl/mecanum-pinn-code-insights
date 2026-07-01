@@ -13,8 +13,9 @@ def _to_device(batch, device):
     return tuple(b.to(device) if torch.is_tensor(b) else b for b in batch)
 
 
-def evaluate_on_test(model, loader, rp, config: Dict[str, Any],
-                     stage: str, desc: str = '') -> Dict[str, float]:
+def evaluate_split(model, loader, rp, config: Dict[str, Any],
+                   stage: str, desc: str = '') -> Dict[str, float]:
+    """Evaluate a single split (val/test) and return averaged loss components."""
     model.eval()
     device = config['device']
     sums: Dict[str, float] = {}
@@ -36,6 +37,28 @@ def evaluate_on_test(model, loader, rp, config: Dict[str, Any],
             n += 1
     out = {k: v / max(1, n) for k, v in sums.items()}
     print(f"[eval/{desc or stage}] " + ' '.join(f"{k}={v:.3e}" for k, v in out.items()))
+    return out
+
+
+def evaluate_on_test(model, loader, rp, config: Dict[str, Any],
+                     stage: str, desc: str = '') -> Dict[str, float]:
+    """Backward-compatible wrapper around evaluate_split."""
+    return evaluate_split(model, loader, rp, config, stage, desc)
+
+
+def evaluate_cross_study(model, same_loader, cross_loader, rp, config: Dict[str, Any],
+                         stage: str) -> Dict[str, float]:
+    """Same-subset (val) and cross-subset (test) loss components with explicit prefixes.
+
+    In the S1/S2 regime design the val loader is the same excitation fold as train,
+    while the test loader is the opposite fold. Labeling the metrics makes the
+    generalization gap directly visible in metrics.json / cross_report.csv.
+    """
+    same = evaluate_split(model, same_loader, rp, config, stage, f'{stage}/same')
+    cross = evaluate_split(model, cross_loader, rp, config, stage, f'{stage}/cross')
+    out = {}
+    out.update({f'same_{k}': v for k, v in same.items()})
+    out.update({f'cross_{k}': v for k, v in cross.items()})
     return out
 
 
@@ -94,4 +117,15 @@ def evaluate_mu_id(model, loader, rp, config: Dict[str, Any], desc: str = ''
            'mu_inv_fwd_div': s_div / max(1e-9, s_w)}
     print(f"[mu-id/{desc}] MAE(inv)={out['mu_mae_inv']:.3f} "
           f"MAE(fwd)={out['mu_mae_fwd']:.3f} inv-fwd div={out['mu_inv_fwd_div']:.3f}")
+    return out
+
+
+def evaluate_mu_id_cross(model, same_loader, cross_loader, rp, config: Dict[str, Any]
+                         ) -> Dict[str, float]:
+    """Same-subset and cross-subset mu-identification metrics."""
+    same = evaluate_mu_id(model, same_loader, rp, config, 'same')
+    cross = evaluate_mu_id(model, cross_loader, rp, config, 'cross')
+    out = {}
+    out.update({f'same_{k}': v for k, v in same.items()})
+    out.update({f'cross_{k}': v for k, v in cross.items()})
     return out
