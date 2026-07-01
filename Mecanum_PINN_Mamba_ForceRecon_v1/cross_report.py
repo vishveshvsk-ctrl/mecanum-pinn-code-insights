@@ -19,7 +19,8 @@ from typing import Dict, List, Optional
 
 
 PKG_ROOT = Path(__file__).resolve().parent
-CKPT_DIR = PKG_ROOT / "runs" / "checkpoints"
+DEFAULT_CKPT_DIRS = [PKG_ROOT / "runs" / "checkpoints",
+                     PKG_ROOT / "checkpoints_mamba_v1"]
 REPORT_CSV = PKG_ROOT / "runs" / "cross_report.csv"
 
 
@@ -107,13 +108,17 @@ def collect_rows(ckpt_dir: Path) -> List[dict]:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Aggregate Mamba ForceRecon cross-subset generalization report.")
-    ap.add_argument("--ckpt-dir", type=Path, default=CKPT_DIR)
+    ap.add_argument("--ckpt-dir", type=Path, action="append", default=[],
+                    help="checkpoint root(s) to scan (default: runs/checkpoints + checkpoints_mamba_v1)")
     ap.add_argument("--report-csv", type=Path, default=REPORT_CSV)
     args = ap.parse_args()
 
-    rows = collect_rows(args.ckpt_dir)
+    ckpt_dirs = args.ckpt_dir if args.ckpt_dir else DEFAULT_CKPT_DIRS
+    rows: List[dict] = []
+    for d in ckpt_dirs:
+        rows.extend(collect_rows(d))
     if not rows:
-        print(f"[report] no runs found under {args.ckpt_dir}")
+        print(f"[report] no runs found under {[str(d) for d in ckpt_dirs]}")
         return
 
     args.report_csv.parent.mkdir(parents=True, exist_ok=True)

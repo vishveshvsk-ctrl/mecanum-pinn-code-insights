@@ -131,6 +131,20 @@ python Mecanum_PINN_Mamba_ForceRecon_v1/launch_parallel.py --warm-cache --max-pa
 opposite regime; `--cross-report` runs `cross_report.py` at the end. S3 chi k-fold
 runs are skipped by `--cross-eval` because they do not have an S1/S2 opposite fold.
 
+### Windows batch runner
+
+For the live Windows/WSL tree, use the batch file to run the cross study against
+all finished A1 checkpoints and produce the report:
+
+```batch
+bat_files\run_a1_cross_study.bat
+```
+
+The batch file activates `myenv`, changes to the live `code_insights` tree, runs
+`Mecanum_PINN_Mamba_ForceRecon_v1\run_cross_study.py`, and finally aggregates with
+`cross_report.py`. Pass `--force` to re-evaluate runs that already have
+`cross_metrics.json`.
+
 ## Physics-ablation study (final vs Adam-only)
 
 To decide whether the L-BFGS physics refinement is worth the extra compute,
@@ -168,6 +182,7 @@ Mecanum_PINN_Mamba_ForceRecon_v1/
 ├── launch_parallel.py    machine-agnostic launcher (thin adapter over parallel_sweep.py)
 ├── cross_eval.py         evaluate a trained checkpoint on another regime's test split
 ├── cross_report.py       aggregate same/cross metrics into a CSV + gap table
+├── run_cross_study.py    fan out cross_eval.py over all finished A1 runs
 ├── physics_ablation_eval.py    final model vs Adam-only model on same/cross splits
 ├── physics_ablation_report.py  aggregate physics-ablation metrics
 ├── smoke_test.py         shape/wiring smoke test (CPU-OK, no data)
