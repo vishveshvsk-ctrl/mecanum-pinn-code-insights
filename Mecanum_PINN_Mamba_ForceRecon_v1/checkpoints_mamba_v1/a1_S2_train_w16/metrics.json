@@ -1,0 +1,16 @@
+{
+"run_tag": "a1_S2_train_w16",
+"regime": "observer_v1_py\\regimes\\S2_train.toml",
+"test_chi": null,
+"ssm_d_model": 32,
+"ssm_d_state": 16,
+"batch_size": 1024,
+"fwd_grnd": 0.04043053370759182,
+"fwd_phys": 4.804033388434374e-05,
+"inv_grnd": 0.0037462405378556,
+"inv_cons": 0.0382003964655252,
+"inv_phys": 1.580213616915001e-05,
+"mu_mae_inv": 0.2464014382369059,
+"mu_mae_fwd": 0.034529926115383185,
+"mu_inv_fwd_div": 0.21684419934257132
+}

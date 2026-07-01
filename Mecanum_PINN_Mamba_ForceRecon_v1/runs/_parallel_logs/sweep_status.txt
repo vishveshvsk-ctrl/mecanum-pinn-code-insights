@@ -1,0 +1,2 @@
+[sweep] 2594 min | done 6 failed 0 running 0 queued 0 / 6 to run
+done:   a1_S2_train_w32, a1_S1_train_w32, a1_S1_train_w16, a1_S2_train_w16, a1_S2_train_w8, a1_S1_train_w8
