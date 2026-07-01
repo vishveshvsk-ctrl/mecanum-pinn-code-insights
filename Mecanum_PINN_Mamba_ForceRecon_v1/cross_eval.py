@@ -144,8 +144,13 @@ def main() -> None:
     cfg["run_tag"] = args.run_tag or f"{cfg['run_tag']}_on_{target_name}"
 
     rp = RobotParams().finalize(p1_wheels=0.11, device=device)
+    print("[cross-eval] resolved paths:")
+    print(f"  data_dir     = {Path(cfg['data_dir']).resolve()}")
+    print(f"  whitelist_csv= {Path(cfg['whitelist_csv']).resolve()}")
+    print(f"  cache_dir    = {cfg.get('cache_dir')!r}")
     print("[cross-eval] loading target regime split...")
     tr, va, te = load_regime_split(cfg["regime_toml"], cfg)
+    print(f"[cross-eval] regime split returned tr={len(tr)} va={len(va)} te={len(te)}")
     if not tr:
         print("[fatal] target regime produced no training trajectories")
         sys.exit(1)

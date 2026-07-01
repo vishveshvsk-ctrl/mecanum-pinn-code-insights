@@ -307,9 +307,14 @@ def compute_regime_split(regime_toml, data_dir, whitelist_csv, project_root,
                          test_chi: Optional[float] = None) -> Dict[str, List[str]]:
     """Top-level: regime TOML -> {'train','val','test'} Arrow FILENAME lists.
     `test_chi` overrides the S3 held-out chi (the --test-chi equivalent)."""
+    print(f"[regime-debug] inputs: data_dir={Path(data_dir).resolve()} "
+          f"whitelist_csv={Path(whitelist_csv).resolve()} project_root={Path(project_root).resolve()}")
+    print(f"[regime-debug] building regime config from {regime_toml} ...")
     cfg = build_regime_config(regime_toml, data_dir, whitelist_csv, project_root,
                               override_chi_fold_test=test_chi)
+    print(f"[regime-debug] discovering files ...")
     files = _discover(cfg)
+    print(f"[regime-debug] discovered {len(files)} files; splitting ...")
     split = _split_files(files, cfg)
     print(f"[regime] {cfg.regime_name}: train={len(split['train'])} "
           f"val={len(split['val'])} test={len(split['test'])} "
