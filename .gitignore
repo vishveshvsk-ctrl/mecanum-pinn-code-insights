@@ -39,6 +39,10 @@ kimi_start_prompt.txt
 monitoring_location.txt
 kimi_code_creator_wsl.md
 
+# --- Decimated trajectory caches (regenerable; can be GBs) ---------------
+Mecanum_PINN_Mamba_ForceRecon_v1/cache_decim/
+observer_v1_py/cache_decim/
+
 # --- Logs, DBs, process output ------------------------------------------
 *.log
 *.out
@@ -65,6 +69,7 @@ desktop.ini
 #   *.ipynb   notebooks  (consider stripping outputs before commit; see below)
 #   *.pdf     decks / reference papers
 #   *.html    rendered trajectory diagnostics
-#   *.pt *.pth *.npz   trained checkpoints + decimated caches
+#   *.pt *.pth         trained checkpoints
+#   *.npz              decimated caches (kept only outside package cache_decim/ dirs)
 #   *.toml *.jl *.py *.md *.tex *.arrow(fixtures)
 # ===========================================================================
