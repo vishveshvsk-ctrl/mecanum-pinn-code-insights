@@ -54,10 +54,11 @@ def _config_from_checkpoint(ckpt: dict, ckpt_path: Path) -> dict:
     if cfg is not None:
         return dict(cfg)
 
-    print("[cross-eval] checkpoint lacks config; reconstructing from manifest")
+    print("[cross-eval] checkpoint lacks config; reconstructing from manifest/run dir")
     manifest = load_manifest_at(ckpt_path) or {}
     scope = manifest.get("scope", {})
     summary = manifest.get("config_summary", {})
+    run_dir_name = ckpt_path.parent.name
 
     cfg = build_config()
     cfg["profiles"] = scope.get("profiles", cfg["profiles"])
@@ -67,18 +68,22 @@ def _config_from_checkpoint(ckpt: dict, ckpt_path: Path) -> dict:
     cfg["whitelist_path"] = Path(scope.get("whitelist_path", cfg["whitelist_path"]))
     cfg["seed"] = scope.get("seed", cfg["seed"])
 
-    # regime: manifest (new) -> metrics.json (old) -> run_tag inference
+    # regime: manifest (new) -> metrics.json (old) -> run-tag/dir-name inference
     regime = manifest.get("regime", "")
+    run_tag = manifest.get("run_tag") or run_dir_name
     if not regime:
         metrics_path = ckpt_path.parent / "metrics.json"
         if metrics_path.exists():
             try:
                 metrics = json.loads(metrics_path.read_text())
                 regime = metrics.get("regime", "")
+                run_tag = metrics.get("run_tag") or run_tag
             except Exception:
                 pass
     if not regime:
-        regime = _infer_regime_from_run_tag(manifest.get("run_tag", ""))
+        regime = _infer_regime_from_run_tag(run_tag)
+        if not regime:
+            regime = _infer_regime_from_run_tag(run_dir_name)
     cfg["regime_toml"] = regime
 
     cfg.update({k: v for k, v in summary.items() if k in cfg})
