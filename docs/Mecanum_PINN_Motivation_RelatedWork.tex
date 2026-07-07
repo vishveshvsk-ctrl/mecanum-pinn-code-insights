@@ -1,0 +1,378 @@
+% =====================================================================
+% Mecanum_PINN_Motivation_RelatedWork.tex
+%
+% Motivation + Related-Work section for the IMECE 2026 paper on a
+% PINN + Mamba digital twin for forward-dynamics learning and per-wheel
+% friction-parameter (mu, chi) recovery on a KUKA youBot four-mecanum
+% platform.
+%
+% This file compiles STANDALONE (pdflatex + bibtex) for review, and the
+% two \section blocks lift directly into the ASME imece template.
+%
+% To drop into the ASME template:
+%   1. Delete the preamble down to "% ===== SECTION CONTENT BEGINS".
+%   2. Paste the two sections after your \section{Introduction}.
+%   3. Use the ASME .bst (e.g. asmems4) instead of unsrtnat below, and
+%      \bibliography{mecanum_pinn_refs}.
+%
+% EVIDENCE NOTE: every quantitative figure below passed 3-vote adversarial
+% verification. Two standing caveats, stated once here and reflected in the
+% wording: (a) all reported gains are the cited authors' own results against
+% their own baselines, not independently replicated; (b) most PINN
+% friction-ID evidence comes from FIXED-BASE manipulators, not mecanum
+% mobile robots -- their transfer to per-wheel (mu, chi) recovery is by
+% analogy, which is precisely the gap this paper closes.
+% =====================================================================
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
+            urlcolor=blue!50!black}
+
+\title{\bfseries Motivation and Related Work (draft)\\
+\normalsize PINN + Mamba Digital Twin for Mecanum Forward Dynamics and Friction Identification}
+\author{\normalsize IMECE 2026 --- section draft}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ===== SECTION CONTENT BEGINS =========================================
+
+\section{Motivation}
+\label{sec:motivation}
+
+Four-wheel Mecanum platforms are attractive across industrial and service
+settings---warehouse and intralogistics transport, manufacturing and assembly
+feeding, hospital and clinical logistics, cleaning, inspection, and assistive
+mobility---because their omnidirectional maneuverability lets them translate and
+rotate independently in cluttered, human-shared, space-constrained environments
+where conventional differential-drive vehicles require multi-point turns
+\cite{burkacki2025review}. Yet a recent systematic review of Mecanum and omni-wheel
+technologies identifies four recurring barriers that gate real-world deployment:
+limited stability and maneuverability on uneven and inclined terrain, high energy
+consumption, complex control requirements, and elevated cost \cite{burkacki2025review}.
+
+\subsection{Why higher-fidelity control is needed}
+\label{sec:why-fidelity}
+
+Underneath those application-level barriers sits a common set of physics-level
+obstacles that the ideal-rolling kinematic model omits, and each has been shown to
+cause a concrete, independently reported failure. \emph{Energy:} in a real
+industrial haul---five tonnes of zinc ingots transported 5~km in an iron--steel
+plant---wheel slippage caused $\approx$6.18\% energy loss, cutting battery-supported
+range proportionally, which a kinematic controller assuming ideal rolling cannot
+account for \cite{bayar2025battery}. \emph{Accuracy:} roller--surface contact
+produces significant deviations in vehicle orientation during tracking, requiring a
+control-layer intervention (a ramp-shaped reference) beyond baseline tracking to
+suppress \cite{jmst2024slippage}; and the resulting odometric drift is
+surface- and velocity-dependent, so the same kinematic controller yields different
+positioning error across floors and speeds \cite{shahidi2021odometry}.
+\emph{Coupled accuracy/energy:} restricted force/torque authority causes transient
+overshoot that simultaneously lowers tracking performance and raises energy use,
+reducing autonomy \cite{antipeaking2024}. \emph{Root cause:} Mecanum friction is
+comparatively undermodeled relative to pneumatic or railroad wheels, and an
+experimentally validated orthotropic-friction model shows the contact behavior
+depends on both velocity and the payload-shifted center of mass
+\cite{manzl2023orthotropic}. Because these effects are nonlinear, load-dependent,
+and surface-dependent, purely kinematic or partially dynamic controllers cannot
+reject them---precisely why higher-fidelity model-based control and system
+identification are required \cite{li2025mecanumdob,avpsmo2024}.
+
+Most directly for this work, on the \emph{KUKA youBot} platform itself the real
+Mecanum-wheel construction (a finite number of rollers and their arrangement)
+degrades odometric navigation whenever the odometry algorithm treats the wheel as
+an idealized disc, and an algorithm that accounts for the true geometry measurably
+reduces the coordinate error \cite{adamov2018youbot}. This on-platform evidence
+motivates the friction/dynamics fidelity pursued here (the simulator's LuGre--Adamov
+friction model follows the same line of youBot-specific modeling).
+
+\subsection{Sector barriers and where control is decisive}
+\label{sec:sector-barriers}
+
+The same physics surfaces as distinct barriers across deployment sectors.
+In \emph{heavy industry}, slip-driven energy loss shrinks effective range on
+heavy-load hauls \cite{bayar2025battery}. In \emph{automotive} intralogistics,
+baseline controllers lack the robustness for a four-Mecanum autonomous vehicle,
+motivating adaptive sliding-mode control with an extended state observer
+\cite{bui2025hybrid}. In \emph{warehouse} logistics, surface/velocity-dependent
+odometry drift undermines the pose repeatability that automated workflows depend on
+\cite{shahidi2021odometry}. In \emph{aerospace} assembly, tolerances on the order
+of $0.01$~mm coexist with mobile robots whose position-control accuracy and
+structural stiffness are low, so deployment remains largely at the proof-of-concept
+stage and relies on two-stage positioning---coarse by the platform wheels, fine by a
+laser-tracker-guided arm \cite{aerospaceassembly2026}. In \emph{hospitals}, mobile
+service robots must satisfy six risk dimensions spanning environmental complexity,
+hygiene, human interaction, workflow flexibility, and autonomy
+\cite{hospitalrisks2024}, and their navigation testing is still preliminary and not
+standardized \cite{hospitalnavbench2024}.
+
+A recurring pattern ties these together. The commercial precision bar is set by
+platforms such as KUKA omniMove, which moves loads up to 90~tonnes and states
+contactless positioning to $\pm3$~mm \cite{kuka_omnimove}; yet its base drive
+accuracy is on the order of $\pm5$~mm and is tightened to $\approx\pm1$~mm only with
+add-on optical tracking, positioning aids, and mechanical guides
+\cite{kuka_aerospace}---the same external-metrology workaround seen in aerospace,
+where docking accuracy and repeatability are treated as a first-class requirement
+\cite{nist2016docking}. In other words, deployed precision is bought by external
+referencing rather than by higher-fidelity onboard control, and Mecanum
+slip/odometry drift is exactly what forces that dependence
+\cite{shahidi2021odometry,adamov2018youbot}. The barriers thus split cleanly:
+\emph{control-related}---slip-induced orientation error, odometric drift,
+disturbance/uncertainty rejection, and docking repeatability---versus
+\emph{non-control}---cost, battery life, systems integration, standards compliance,
+hygiene, and workforce. This paper targets the former.
+
+\subsection{Deployability near humans favors interpretable, verifiable models}
+\label{sec:certifiability}
+
+A further, deployment-blocking barrier is regulatory rather than merely
+performance-related. Driverless industrial trucks---the category covering Mecanum
+AGVs and AMRs---are governed by ISO~3691-4:2023, which mandates safety functions
+rated to Performance Levels (typically PL~d, corresponding to SIL~2), personnel
+detection, and speed-limited operating zones; it inherits its method from
+ISO~13849-1 and IEC~61508, and human-proximity collaboration adds ISO~10218 and
+ISO/TS~15066 \cite{iso3691_4,iso13849}. Against this backdrop, systematic reviews
+find that neural-network (black-box) controllers are confined to the lowest safety-
+integrity levels precisely because their outputs cannot be exhaustively predicted or
+formally verified, with interpretability a named open problem
+\cite{zhang2020nnverif,certifyml2022}. This directly favors a \emph{physics-informed},
+structurally-constrained model---one that retains a known friction structure and
+identifies interpretable per-wheel parameters---over an unconstrained black box, both
+because it is more amenable to the verification and PL rating these standards demand
+and because the resulting twin can itself serve as a verification and reachability
+tool for the deployed controller.
+
+The core difficulty underlying all of the above is friction. Slip and stick--slip
+behavior at the roller contact are governed by dynamic friction that simplified
+constant- or Coulomb-plus-viscous models do not capture, and whose parameters are
+neither directly measurable nor constant across surfaces and payloads. A digital
+twin that both predicts forward dynamics at high fidelity and \emph{recovers} the
+underlying per-wheel friction parameters therefore addresses the root cause rather
+than compensating for its symptoms downstream---the objective of this work.
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Higher-fidelity model-based control closes measurable gaps}
+\label{sec:related-control}
+
+A consistent body of recent Mecanum-specific results shows that improving model
+fidelity and adding explicit disturbance estimation measurably improves tracking
+and robustness (Table~\ref{tab:control}). A complete Lagrangian model that
+linearizes the PWM-induced motor delay reduces open-loop Dynamic-Time-Warping
+(DTW) trajectory error to $0.2662$~m versus $0.3198$~m for a traditional model
+($\sim$17\% improvement) \cite{li2025mecanumdob}. Coupling Internal Model Control
+with a Disturbance Observer (IMC+DOB) stabilizes 97.6\% faster than IMC and 98.3\%
+faster than PID under load and noise disturbance \cite{li2025mecanumdob}. Active
+Disturbance Rejection Control (ADRC), which estimates and compensates unknown
+dynamics with minimal plant knowledge, improves inclined-surface tracking accuracy
+by 49--60\% over a PD baseline with experimental validation
+\cite{hernandez2025inclined}. Adaptive and observer-based schemes go further by
+estimating the disturbing quantities themselves: a Model Reference Adaptive Control
+law with Lyapunov-based adaptation compensates unknown CoG offset and slope in real
+time \cite{chaichumporn2025adaptive}, and an adaptive variable-power sliding-mode
+observer used as a feedforward compensator within an MPC (AVPSMO-MPC) suppresses
+external disturbances and model uncertainty with a Lyapunov-proven stability
+guarantee \cite{avpsmo2024}. The common thread is that the residual physics---
+slip, friction, and load---must be modeled or estimated, not ignored; all reported
+gains are the respective authors' own results against their own baselines.
+
+\begin{table}[t]
+  \centering
+  \small
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabular}{@{}p{0.30\linewidth}p{0.28\linewidth}p{0.30\linewidth}@{}}
+    \toprule
+    \textbf{Gap addressed} & \textbf{Approach} & \textbf{Reported gain} \\
+    \midrule
+    Model fidelity $\rightarrow$ tracking error
+      & Complete Lagrangian + linearized motor delay \cite{li2025mecanumdob}
+      & DTW $0.2662$~m vs.\ $0.3198$~m ($\sim$17\%) \\
+    Disturbance rejection (load, noise)
+      & IMC + Disturbance Observer \cite{li2025mecanumdob}
+      & 97.6\% / 98.3\% faster settling vs.\ IMC / PID \\
+    Inclined surfaces (slip, gravity)
+      & ADRC \cite{hernandez2025inclined}
+      & 49--60\% better tracking vs.\ PD (experimental) \\
+    Unknown CoG offset + slope
+      & MRAC, Lyapunov adaptation \cite{chaichumporn2025adaptive}
+      & Real-time compensation; stability proof \\
+    Disturbance + model uncertainty
+      & AVPSMO feedforward in MPC \cite{avpsmo2024}
+      & Lyapunov-proven suppression \\
+    \bottomrule
+  \end{tabular}
+  \caption{Higher-fidelity model-based control on Mecanum platforms. All figures
+  are the cited authors' own results against their own baselines.}
+  \label{tab:control}
+\end{table}
+
+\subsection{Deployed control standard versus the research frontier}
+\label{sec:related-deployed}
+
+There is a wide gap between what industry ships and what the literature proposes.
+Commercial Mecanum platforms are driven, in practice, by kinematic inverse-Mecanum
+allocation with per-wheel PID beneath a SLAM/navigation stack, and their positioning
+accuracy is secured largely through mechanical precision and external referencing
+rather than advanced control---the KUKA omniMove specification of $\pm3$~mm
+(base $\pm5$~mm, $\pm1$~mm only with optical/mechanical aids) is representative
+\cite{kuka_omnimove,kuka_aerospace}, and youBot-class navigation likewise rests on
+kinematic odometry \cite{adamov2018youbot}. The research frontier, by contrast, is
+dominated by robust and adaptive designs that repeatedly demonstrate the
+nominal/kinematic controller to be insufficient under real disturbance: adaptive
+integral terminal sliding mode \cite{aitsm2021}, anti-peaking linear ADRC
+\cite{antipeaking2024}, sliding-mode-observer MPC \cite{avpsmo2024}, and adaptive
+sliding mode with an extended state observer for automotive intralogistics
+\cite{bui2025hybrid}. Yet none of these is standard deployed practice, and---crucially
+for this work---none \emph{recovers the per-wheel friction parameters online}. This
+is the gap the proposed PINN\,+\,Mamba digital twin targets: closing the
+fidelity/identifiability distance between deployed kinematic control and the
+disturbance/slip/friction reality the frontier has documented.
+
+\subsection{Physics-informed learning for friction and forward dynamics}
+\label{sec:related-pinn}
+
+Physics-informed neural networks (PINNs) are an established route to recovering
+friction parameters and learning forward dynamics while preserving physical
+consistency. Most directly relevant, a PINN framework fuses the LuGre dynamic
+friction model with learnable neural components to identify LuGre parameters from
+small, noisy datasets at higher fidelity than simplified friction models, validated
+on an underactuated nonlinear system \cite{ozmen2026lugre}---the same
+identification problem this paper poses for per-wheel $(\mu,\chi)$ recovery. More
+broadly, embedding robot dynamics into the learner improves both identification and
+prediction: a PINN that encodes joint dynamics inside a recurrent network with
+customized Runge--Kutta cells outperforms conventional PINNs and grey-box
+state-space identification and matches ground-truth parameters on UR3e hardware
+\cite{yang2023pinnjoint}, and enhanced PINNs that additionally model motor dynamics
+and external-force coupling report 31.12\%/37.07\% modeling-accuracy gains and
+40.31\%/51.79\% joint-tracking-error reductions over prior state-of-the-art
+\cite{fitee2025pinn}. For the nonsmooth behavior central to slip, PINNs that embed
+nonsmooth multibody formulations capture stick--slip and separation--reattachment
+without the vanishingly small time steps of conventional time-stepping
+\cite{li2023nonsmooth}, and Kolmogorov--Arnold-network methods recover interpretable
+closed-form static-friction laws ($R^2 > 0.95$) with no predefined functional form
+\cite{wang2025kan}. Notably, rigid-body-prior networks alone are insufficient:
+standard Deep Lagrangian Networks fail to capture nonlinear friction and
+flexibility, motivating augmentations such as DeLaN-FFNN that add a learnable
+non-conservative component \cite{li2025compliant}---direct justification for pairing
+a physics prior with a learnable friction term rather than relying on either alone.
+
+\subsection{Selective state-space models as a sequence backbone}
+\label{sec:related-ssm}
+
+Trajectory data for a richly-excited Mecanum platform are long, and the friction
+state (e.g.\ LuGre bristle deflection) is history-dependent, motivating a
+sequence model that scales. Mamba introduces selective state-space models with
+input-dependent state transitions, achieving linear-time complexity in sequence
+length and demonstrated improvements on real data up to million-length sequences
+\cite{gu2023mamba}, providing an efficient long-horizon backbone for the PINN +
+Mamba digital twin proposed here.
+
+\subsection{The gap this paper addresses}
+\label{sec:related-gap}
+
+Two observations define the opening. First, the strongest PINN friction-ID and
+forward-dynamics evidence
+\cite{yang2023pinnjoint,fitee2025pinn,wang2025kan,li2025compliant} is drawn from
+fixed-base industrial manipulators and cobot joints, not from Mecanum
+omnidirectional mobile robots; the single most on-point friction-ID result
+\cite{ozmen2026lugre} is validated on one underactuated testbed. Their transfer to
+\emph{per-wheel} friction $(\mu,\chi)$ recovery on a four-Mecanum platform is thus
+established only by analogy. Second, to our knowledge no prior work applies a
+selective state-space (Mamba) backbone to Mecanum or mobile-robot forward-dynamics
+learning. This paper connects these threads: a physics-informed, Mamba-backed
+digital twin that learns forward dynamics and recovers interpretable per-wheel
+friction parameters for a KUKA youBot Mecanum platform, targeting exactly the
+slip/friction/CoG chokepoint that Section~\ref{sec:related-control} shows to be the
+binding constraint on Mecanum control fidelity.
+
+% ===== SECTION CONTENT ENDS ===========================================
+
+\appendix
+
+\section{Certifiability Implications of Interpretable, Physics-Informed Control}
+\label{app:certifiability}
+
+Deploying an AMR in close proximity to humans is gated less by nominal tracking
+accuracy than by \emph{functional-safety certification}. Under ISO~3691-4:2023,
+driverless industrial trucks realize their protective functions---personnel
+detection, protective stop, and speed-and-separation monitoring---through the
+methodology of ISO~13849-1, whose Performance Levels (PL~a--e) map onto the Safety
+Integrity Levels of IEC~61508 \cite{iso3691_4,iso13849,iec61508}. Operation in a
+shared human workspace typically requires the relevant safety function to reach
+\textbf{PL~d (SIL~2)} in the forward direction (Table~\ref{tab:pl-sil}). The
+decisive obstacle for learning-based control is \emph{systematic capability}: these
+standards demand evidence that the control software is verifiable, output-bounded,
+structurally testable, and free of systematic faults. A black-box neural controller
+cannot furnish this evidence---its outputs cannot be exhaustively bounded, its
+structure cannot be covered by test, and its behavior cannot be argued
+deterministic---which is why systematic reviews find neural controllers
+``confined to the lowest levels of safety integrity''
+\cite{zhang2020nnverif,certifyml2022}.
+
+\begin{table}[t]
+  \centering
+  \small
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabular}{@{}p{0.13\linewidth}p{0.24\linewidth}p{0.08\linewidth}p{0.42\linewidth}@{}}
+    \toprule
+    \textbf{Level} & \textbf{$\mathrm{PFH_d}$ (dangerous failures/h)} & \textbf{$\approx$SIL}
+      & \textbf{What it permits for an AMR near people} \\
+    \midrule
+    none / PL~a & $\ge 10^{-5}$ & --- &
+      Not safety-creditable; the function may run only \emph{behind} an independent
+      certified safety layer, or in segregated/caged space with no humans present. \\
+    PL~b & $3{\times}10^{-6}$--$10^{-5}$ & SIL~1 &
+      Low-consequence safety functions (warnings, non-critical interlocks). \\
+    PL~c & $10^{-6}$--$3{\times}10^{-6}$ & SIL~1 &
+      Moderate functions, e.g.\ reverse / low-speed travel where risk is lower. \\
+    PL~d & $10^{-7}$--$10^{-6}$ & SIL~2 &
+      \emph{Workhorse level for shared workspaces}: personnel detection, protective
+      stop, speed-and-separation monitoring, forward travel among humans. \\
+    PL~e & $10^{-8}$--$10^{-7}$ & SIL~3 &
+      Highest-hazard cases (high mass/speed, severe-injury potential); rarely
+      required for standard AMRs. \\
+    \bottomrule
+  \end{tabular}
+  \caption{ISO~13849-1 Performance Levels, their target dangerous-failure rates and
+  approximate IEC~61508 SIL mapping, and what each permits for a Mecanum AMR
+  operating near humans \cite{iso13849,iec61508,iso3691_4}.}
+  \label{tab:pl-sil}
+\end{table}
+
+This is precisely where the physics-informed structure of the proposed twin changes
+the achievable certification \emph{status}---though not, by itself, the Performance
+Level. A model that retains a known friction structure (LuGre) and rigid-body
+constraints, identifies interpretable per-wheel parameters $(\mu,\chi)$ with physical
+bounds, and admits provable output bounds and reachability supplies exactly the
+systematic-capability and verification evidence that a black box cannot
+\cite{ozmen2026lugre,wang2025kan}. The effect is a change of role rather than an
+automatic level jump: the learned component moves from \emph{non-creditable}
+(effectively SIL~0, requiring it to be fully fenced off or overridden) to
+\emph{verifiable and creditable} within the safety argument (plausibly SIL~1--2 for
+its role). Reaching PL~d/SIL~2 still requires the full ISO~13849 package---Category-3
+architecture, diagnostic coverage, and hardware fault tolerance---so interpretability
+unlocks the software/systematic half of the case, not the whole of it. In practical
+terms it yields two deployment gains: (i) a verifiable, bounded forward-dynamics
+model lets the performance channel operate less conservatively (higher speed, tighter
+separation) at the \emph{same} certified PL, reducing reliance on external metrology
+and nuisance stops; and (ii) the physics-grounded twin can serve as a certifiable
+runtime monitor---its divergence from measured motion is a diagnosable, bounded
+trip condition---and as the reachable-set oracle a safety assessor requires. We
+emphasize that certification is ultimately an assessor's safety-case judgment;
+interpretability is an \emph{enabler of the required evidence}, not a certificate in
+itself \cite{zhang2020nnverif,certifyml2022}.
+
+\bibliographystyle{unsrtnat}   % ASME: replace with asmems4 (or your template's .bst)
+\bibliography{mecanum_pinn_refs}
+
+\end{document}

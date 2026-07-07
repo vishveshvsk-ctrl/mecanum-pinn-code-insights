@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """
-PreToolUse hook for Bash and PowerShell.
-Triggers a permission prompt if a command references absolute paths
-outside the mecanum_pinn_head tree, or writes to AppData/system dirs.
-Relative paths (within the project) are always silently allowed.
+PreToolUse hook for Bash, PowerShell, and the file tools (Read / Grep / Glob).
+Triggers a permission prompt if a command (Bash/PowerShell) or a target path
+(Read/Grep/Glob) references absolute paths outside the mecanum_pinn_head tree,
+or writes to AppData/system dirs.
+
+- Bash/PowerShell: in-project commands stay SILENT (the Bash(*)/PowerShell(*)
+  allow list handles them, as before).
+- Read/Grep/Glob: in-project paths are EXPLICITLY allowed (the base permission
+  system, not this hook, is what prompts for reads — so silence is not enough;
+  the hook must return "allow"). Out-of-project paths -> "ask".
+Relative paths (within the project) are always allowed.
 
 Covers BOTH path dialects, since commands may run natively on Windows OR
 be dispatched into WSL via `wsl.exe -e bash -lc '...'`:
@@ -104,41 +111,52 @@ def is_outside_project(token: str) -> bool:
     return False
 
 
+def _emit(decision: str, reason: str) -> None:
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": decision,
+            "permissionDecisionReason": reason,
+        }
+    }))
+
+
 def main():
     try:
         data = json.load(sys.stdin)
     except Exception:
         sys.exit(0)  # can't parse → let permission system decide normally
 
-    command = data.get("tool_input", {}).get("command", "")
-    if not command:
-        sys.exit(0)
+    tool = data.get("tool_name", "")
+    ti = data.get("tool_input", {})
+    command = ti.get("command", "")
 
-    # Split on whitespace, shell delimiters, AND redirect/assignment operators
-    # (< > =) so that targets in `>/mnt/c/x`, `2>/dev/null`, and `--cwd=/path`
-    # surface as bare path tokens.
-    tokens = re.split(r'[\s;|&"\'`()<>=]+', command)
+    # --- Bash / PowerShell: scan the whole command for out-of-project absolute
+    #     paths + risky system writes. In-project → stay SILENT so the
+    #     Bash(*)/PowerShell(*) allow list applies exactly as before. ---
+    if command:
+        # Split on whitespace, shell delimiters, AND redirect/assignment operators
+        # (< > =) so targets in `>/mnt/c/x`, `2>/dev/null`, `--cwd=/path` surface.
+        tokens = re.split(r'[\s;|&"\'`()<>=]+', command)
+        risky_paths = [t for t in tokens if t and is_outside_project(t)]
+        has_write_op = any(kw in command for kw in WRITE_KEYWORDS)
+        risky_system = has_write_op and bool(SYSTEM_PATH_RE.search(command))
+        if risky_paths or risky_system:
+            reason = "references path(s) outside mecanum_pinn_head"
+            if risky_paths:
+                reason += f": {risky_paths[:3]}"
+            _emit("ask", reason)
+        sys.exit(0)  # in-project shell command → defer to the allow list
 
-    # Check 1: any token is an absolute path outside the project
-    risky_paths = [t for t in tokens if t and is_outside_project(t)]
-
-    # Check 2: command writes to AppData / system dirs
-    has_write_op = any(kw in command for kw in WRITE_KEYWORDS)
-    risky_system = has_write_op and bool(SYSTEM_PATH_RE.search(command))
-
-    if risky_paths or risky_system:
-        reason = "references path(s) outside mecanum_pinn_head"
-        if risky_paths:
-            reason += f": {risky_paths[:3]}"
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "ask",
-                "permissionDecisionReason": reason,
-            }
-        }))
-
-    # No output → use normal permission handling (allow list applies)
+    # --- File tools (Read / Grep / Glob / …): the target is a single path in
+    #     file_path/path. Grep/Glob `path` is optional → absent means cwd (in
+    #     project). The base permission system is what prompts for reads, so we
+    #     must EXPLICITLY allow in-project access; ASK only when outside. ---
+    p = ti.get("file_path") or ti.get("path") or ""
+    if p and is_outside_project(p):
+        _emit("ask", f"references path outside mecanum_pinn_head: {p}")
+    else:
+        _emit("allow", f"in-project {tool or 'file'} access")
     sys.exit(0)
 
 

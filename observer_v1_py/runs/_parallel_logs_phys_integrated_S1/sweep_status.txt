@@ -1,0 +1,2 @@
+[sweep] 1 min | done 0 failed 1 running 0 queued 0 / 1 to run
+FAILED: S1_train_w32_phys_integrated_b1024

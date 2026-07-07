@@ -16,7 +16,9 @@
       "WebSearch",
       "WebFetch(domain:arxiv.org)",
       "Bash(git pull *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ],
     "ask": [
       "Write(*.sh)",
@@ -28,7 +30,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell",
+        "matcher": "Bash|PowerShell|Read|Grep|Glob",
         "hooks": [
           {
             "type": "command",

@@ -1,0 +1,22 @@
+{
+  "run_tag": "run01_on_S1_train",
+  "train_regime": "observer_v1_py\\regimes\\S2_train.toml",
+  "eval_regime": "observer_v1_py/regimes/S1_train.toml",
+  "stage": "both",
+  "fwd_same_grnd": 0.03891800067126253,
+  "fwd_same_phys": 4.5744740184424164e-05,
+  "fwd_cross_grnd": 0.042826446576253764,
+  "fwd_cross_phys": 4.86561288510899e-05,
+  "inv_same_grnd": 0.0035141091073400215,
+  "inv_same_cons": 0.036590204920747695,
+  "inv_same_phys": 1.4714792549286655e-05,
+  "inv_cross_grnd": 0.0034000123086625933,
+  "inv_cross_cons": 0.04043824695171822,
+  "inv_cross_phys": 1.463581681163026e-05,
+  "same_mu_mae_inv": 0.25236792261343477,
+  "same_mu_mae_fwd": 0.0330746361754924,
+  "same_mu_inv_fwd_div": 0.2242740744754871,
+  "cross_mu_mae_inv": 0.24978342556049107,
+  "cross_mu_mae_fwd": 0.034337806228950774,
+  "cross_mu_inv_fwd_div": 0.2203603487671868
+}

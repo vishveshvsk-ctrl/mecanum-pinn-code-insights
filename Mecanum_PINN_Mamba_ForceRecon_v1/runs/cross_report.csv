@@ -1,0 +1,13 @@
+run_tag,source,train_regime,eval_regime,fwd_same_total,fwd_cross_total,fwd_gap,inv_same_total,inv_cross_total,inv_gap,mu_mae_inv_same,mu_mae_inv_cross,mu_mae_inv_gap
+a1_S1_train_w16,training,observer_v1_py\regimes\S1_train.toml,observer_v1_py\regimes\S1_train.toml,,4.306592e-02,,,4.629466e-02,,,2.672354e-01,
+run01_on_S2_train,cross_eval,observer_v1_py\regimes\S1_train.toml,observer_v1_py\regimes\S2_train.toml,4.604532e-02,4.087856e-02,-5.166765e-03,4.970836e-02,4.424773e-02,-5.460623e-03,2.718446e-01,2.656507e-01,-6.193900e-03
+a1_S1_train_w32,training,observer_v1_py\regimes\S1_train.toml,observer_v1_py\regimes\S1_train.toml,,4.378488e-02,,,4.530193e-02,,,2.965394e-01,
+run01_on_S2_train,cross_eval,observer_v1_py\regimes\S1_train.toml,observer_v1_py/regimes/S2_train.toml,4.619558e-02,4.159593e-02,-4.599659e-03,4.831194e-02,4.326517e-02,-5.046766e-03,2.809541e-01,2.934297e-01,1.247559e-02
+a1_S1_train_w8,training,observer_v1_py\regimes\S1_train.toml,observer_v1_py\regimes\S1_train.toml,,4.415571e-02,,,4.451617e-02,,,4.117334e-01,
+run01_on_S2_train,cross_eval,observer_v1_py\regimes\S1_train.toml,observer_v1_py/regimes/S2_train.toml,4.596413e-02,4.193081e-02,-4.033319e-03,4.701915e-02,4.275454e-02,-4.264615e-03,3.705566e-01,4.071882e-01,3.663161e-02
+a1_S2_train_w16,training,observer_v1_py\regimes\S2_train.toml,observer_v1_py\regimes\S2_train.toml,,4.047857e-02,,,4.196244e-02,,,2.464014e-01,
+run01_on_S1_train,cross_eval,observer_v1_py\regimes\S2_train.toml,observer_v1_py/regimes/S1_train.toml,3.896375e-02,4.287510e-02,3.911357e-03,4.011903e-02,4.385290e-02,3.733866e-03,2.523679e-01,2.497834e-01,-2.584497e-03
+a1_S2_train_w32,training,observer_v1_py\regimes\S2_train.toml,observer_v1_py\regimes\S2_train.toml,,4.143485e-02,,,4.226582e-02,,,2.777203e-01,
+run01_on_S1_train,cross_eval,observer_v1_py\regimes\S2_train.toml,observer_v1_py/regimes/S1_train.toml,3.927564e-02,4.373678e-02,4.461143e-03,3.971816e-02,4.338260e-02,3.664443e-03,2.567005e-01,2.738377e-01,1.713717e-02
+a1_S2_train_w8,training,observer_v1_py\regimes\S2_train.toml,observer_v1_py\regimes\S2_train.toml,,4.250677e-02,,,4.431930e-02,,,3.873172e-01,
+run01_on_S1_train,cross_eval,observer_v1_py\regimes\S2_train.toml,observer_v1_py/regimes/S1_train.toml,3.992090e-02,4.389408e-02,3.973185e-03,4.109689e-02,4.472783e-02,3.630936e-03,3.789161e-01,3.884736e-01,9.557541e-03

@@ -1,0 +1,2 @@
+[sweep] 304 min | done 1 failed 0 running 0 queued 0 / 1 to run
+done:   S2_train_w32_phys_residual_b1024
