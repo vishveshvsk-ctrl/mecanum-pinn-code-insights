@@ -12,6 +12,10 @@
 # Forces are recomputed from the PREDICTED states (gamma via the contact
 # kinematics, plus the bristles zx/zy/zs), with chi carried per-sample as a
 # loss-side constant (never a network input).
+#
+# v2 note: observer_v1_py/mecanum_observer/losses_v2.py trains the roller
+# torque-balance term using label-sourced zx/zy while gamma is predicted by the
+# network.  In v1 the roller term is monitor-only (`phys_roller_w*_MON`).
 # =============================================================================
 from __future__ import annotations
 
