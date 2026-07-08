@@ -63,6 +63,9 @@ desktop.ini
 .vscode/
 .idea/
 
+# --- Rendered presentation decks (regenerable) ---------------------------
+docs/PINN Mecanum Deck - Combined.html
+
 # ===========================================================================
 # Explicitly KEPT (documented so future-you doesn't second-guess):
 #   *.csv     diagnostic data products (figures rebuild from these)
