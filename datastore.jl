@@ -36,10 +36,19 @@ using Printf
 using DiffEqCallbacks: PresetTimeCallback
 using Base.Threads: @spawn
 
-export compute_labels, assemble_dataframe, write_outputs,
+export compute_labels, compute_accelerations, assemble_dataframe, write_outputs,
        output_prefix, expected_output,
        build_streaming_logger, reload_run,
        ntuple_from_params, ntuple_from_asmc
+
+# =============================================================================
+# Acceleration sidecar constants — mirror tools_accel/accel_dynamics.py.
+# EOM_CONVENTION "ne_rhs_v1_mz_dropped" means the per-wheel spin moment Mz_i
+# is excluded from the body yaw-moment balance, matching the Python reference.
+# =============================================================================
+const EOM_CONVENTION = "ne_rhs_v1_mz_dropped"
+const GENERATOR_VERSION = "accel_julia_v1"
+const ACCEL_COLS = ["dVx", "dVy", "dpsidot", "dw1", "dw2", "dw3", "dw4"]
 
 # =============================================================================
 # Filename scheme — THE single source of truth.
@@ -138,6 +147,74 @@ function compute_labels(sol, params, asmc, chi::Real,
 end
 
 # =============================================================================
+# Exact-dynamics acceleration extraction — body + wheel accelerations from the
+# already-computed labels and the ODE solution.  This is a Julia port of
+# tools_accel/accel_dynamics.py::body_wheel_accels; it does NOT re-run the ODE.
+#
+# Returns NamedTuple (dVx, dVy, dpsidot, dw) where dw is 4 × N.
+# =============================================================================
+function compute_accelerations(sol, labels, params; friction_case::Int = 1)
+    N = length(sol.t)
+    dVx = zeros(N)
+    dVy = zeros(N)
+    dpsidot = zeros(N)
+    dw = zeros(4, N)
+
+    ms, m = params.ms, params.m
+    aX, aY = params.aX, params.aY
+    px, py = params.wc_x, params.wc_y
+    R = params.R
+    Jw = params.J_wheel
+    p1 = friction_case == 1 ? params.p1_case1 : params.p1_case2
+
+    @inbounds for k in 1:N
+        u = sol.u[k]
+        Vx, Vy, psi_dot = u[1], u[2], u[3]
+        w = SVector(u[9], u[10], u[11], u[12])
+        Fx = SVector(labels.Fxs[1,k], labels.Fxs[2,k], labels.Fxs[3,k], labels.Fxs[4,k])
+        Fy = SVector(labels.Fys[1,k], labels.Fys[2,k], labels.Fys[3,k], labels.Fys[4,k])
+        Msat = SVector(labels.Msat[1,k], labels.Msat[2,k], labels.Msat[3,k], labels.Msat[4,k])
+
+        RHS0 = sum(Fx) + ms * psi_dot * Vy + m * aX * psi_dot^2
+        RHS1 = sum(Fy) - ms * psi_dot * Vx + m * aY * psi_dot^2
+        RHS2 = sum(px .* Fy - py .* Fx) - m * psi_dot * (aX * Vx + aY * Vy)
+        dv = params.M_inv * SVector(RHS0, RHS1, RHS2)
+
+        dVx[k] = dv[1]
+        dVy[k] = dv[2]
+        dpsidot[k] = dv[3]
+        dw[:, k] .= (Msat .- Fx .* R .- p1 .* w) ./ Jw
+    end
+    return (; dVx, dVy, dpsidot, dw)
+end
+
+"""Return exact modification-time nanoseconds on Linux x86_64; fall back to
+Float64-derived nanoseconds elsewhere.  This lets the fingerprint match
+Python's `os.stat(path).st_mtime_ns` on the primary WSL/x86_64 runtime."""
+function mtime_ns(path::AbstractString)
+    if Sys.islinux() && Sys.ARCH === :x86_64
+        # glibc x86_64 struct stat layout: st_mtim at byte 88,
+        # tv_sec (Int64) at 88, tv_nsec (Int64) at 96.
+        buf = zeros(UInt8, 144)
+        ret = ccall(:stat, Cint, (Cstring, Ptr{Cvoid}), path, buf)
+        ret == 0 || error("stat failed for $path")
+        sec  = ltoh(reinterpret(Int64, buf[89:96])[1])
+        nsec = ltoh(reinterpret(Int64, buf[97:104])[1])
+        return sec * 1_000_000_000 + nsec
+    end
+    # Fallback for non-Linux-x86_64 platforms (may differ from Python by a few
+    # hundred nanoseconds because Float64 cannot represent every nanosecond).
+    return floor(Int, stat(path).mtime * 1e9)
+end
+
+"""Source-file fingerprint matching tools_accel/make_accel_sidecars.py:
+`\"<size>:<mtime_ns>\"`."""
+function arrow_fingerprint(path::AbstractString)
+    st = stat(path)
+    return "$(st.size):$(mtime_ns(path))"
+end
+
+# =============================================================================
 # Long-form DataFrame — one (profile, combo, mu, chi, friction_model) run.
 #
 # PINN-loader contract (data.py): the columns
@@ -230,7 +307,8 @@ end
 function write_outputs(df::DataFrame, sol, labels, params, asmc,
                        meta::NamedTuple; outdir::AbstractString,
                        cfg::Union{AbstractDict,Nothing} = nothing,
-                       write_jld2::Bool = true)
+                       write_jld2::Bool = true,
+                       write_accel::Bool = true)
     prefix     = output_prefix(outdir, meta)
     arrow_path = @sprintf("%s_chi_%.3f.arrow", prefix, meta.chi)
     jld2_path  = @sprintf("%s_chi_%.3f.jld2",  prefix, meta.chi)
@@ -258,7 +336,43 @@ function write_outputs(df::DataFrame, sol, labels, params, asmc,
 
     Arrow.write(arrow_path * ".tmp", df; compress = :zstd)
     mv(arrow_path * ".tmp", arrow_path; force = true)
-    return (arrow = arrow_path, jld2 = write_jld2 ? jld2_path : nothing)
+
+    # -------------------------------------------------------------------------
+    # Acceleration sidecar — exact-dynamics body + wheel accelerations, written
+    # to accel/<stem>_accel.arrow.  Computed from the already-saved columns so
+    # the main Arrow file is unchanged.  Sidecar metadata pairs it with the
+    # source file via size+mtime fingerprint, matching tools_accel convention.
+    # -------------------------------------------------------------------------
+    accel_path = nothing
+    if write_accel
+        accel_dir = joinpath(dirname(arrow_path), "accel")
+        mkpath(accel_dir)
+        stem, _ = splitext(basename(arrow_path))
+        accel_path = joinpath(accel_dir, "$(stem)_accel.arrow")
+
+        accel = compute_accelerations(sol, labels, params;
+                                       friction_case = meta.friction_case)
+        adf = DataFrame(dVx = accel.dVx, dVy = accel.dVy, dpsidot = accel.dpsidot)
+        for i in 1:4
+            adf[!, Symbol("dw$i")] = accel.dw[i, :]
+        end
+
+        meta_accel = Dict(
+            "source_name" => basename(arrow_path),
+            "source_rows" => string(nrow(df)),
+            "source_fingerprint" => arrow_fingerprint(arrow_path),
+            "eom_convention" => EOM_CONVENTION,
+            "generator_version" => GENERATOR_VERSION,
+        )
+
+        Arrow.write(accel_path * ".tmp", adf;
+                    metadata = meta_accel, compress = :zstd)
+        mv(accel_path * ".tmp", accel_path; force = true)
+    end
+
+    return (arrow = arrow_path,
+            jld2 = write_jld2 ? jld2_path : nothing,
+            accel = accel_path)
 end
 
 ntuple_from_params(p) = (h=p.h, l=p.l, R=p.R, Ra=p.Ra, m=p.m,

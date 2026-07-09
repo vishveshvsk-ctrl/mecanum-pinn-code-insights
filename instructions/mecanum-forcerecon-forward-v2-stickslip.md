@@ -1,8 +1,8 @@
 # Mecanum ForceRecon Forward Model v2 — Stick/Slip Encoder with Wrench-Restructured Output
 
-> **Generated:** 2026-07-09
+> **Generated:** 2026-07-09 (rev 3: sensor-real input contract mirrored from Observer v2 rev 4 — accel sidecars + complementary-filtered V̂, staged noise, single-realization rule; rev 2: forward isolated from the inverse; γ̂ from Observer v2)
 > **Stack:** Python 3.13, PyTorch 2.6.0+cu124 (conda `myenv`, RTX 3060 6 GB / Quadro 24 GB), numpy, pyarrow
-> **Scope:** Training + model (forward model only; inverse model untouched)
+> **Scope:** Training + model — FORWARD ONLY. Zero dependency on the inverse model; the inverse redesign proceeds in parallel in its own session (see `chat-handoff/inverse_v2_brainstorm_handoff.md`)
 > **Design authority:** `Mecanum_PINN_Mamba_ForceRecon_v1/FORWARD_V2_STICKSLIP_DESIGN.md`
 > (read it first; this brief is the implementation contract for that design)
 
@@ -19,7 +19,22 @@ a physical gate α. System contract: `(S [B,L,11], U [B,L,4], IMU [B,L,3],
 wdot [B,L,4], gamma_hat [B,L,4], mu [B], chi [B]) → F [B,L,8]` physical Newtons,
 plus auxiliary outputs (α, ŝ, s1, s2) for losses and diagnostics. The v1 package
 (`mecanum_pinn/`) stays intact; v2 lands as parallel modules so v1 runs remain
-reproducible.
+reproducible. **Isolation (rev 2):** forward v2 has ZERO dependency on the inverse
+model — no shared `MecanumPINN` coordinator, no inverse stage in the schedule, no
+consistency term — so forward training and the inverse redesign proceed in parallel.
+The γ̂ input channel is explicitly **Observer v2's estimated roller spin**
+(`WheelObserverV2`, γ-only; `instructions/observer-gamma-only-5phase-retrain.md`),
+precomputed offline per trajectory from a designated trained checkpoint;
+noise-injected ground truth survives only as an ablation fallback.
+**Sensor-real contract (rev 3, mirrors Observer v2 rev 4):** direct Vx/Vy are NOT
+inputs — S carries V̂x/V̂y from the fixed complementary filter (crossover + integrator
+pinned by `instructions/frontend-drift-audit.md`'s ACCEPTANCE.md), ψ̇ is the gyro, and
+the IMU channels are the accelerometer observable built from the exact-dynamics
+`accel/` sidecars (`instructions/arrow-accel-augmentation.md`), never finite
+differencing. Staged noise `noise_stage ∈ {"none","real"}`, campaign 1 noiseless.
+**Single-realization rule:** A1 consumes the IMU twice — encoder features AND measured
+wrench combos — so ONE corruption realization per trajectory is shared by both paths.
+Sensor-real applies to model INPUTS only; ground truth stays legal on the loss side.
 
 ## 2. Architecture Pattern
 
@@ -38,36 +53,36 @@ each get a dedicated structural element instead of one generic encoder.
 - **PyTorch:** 2.6.0+cu124; `torch.compile` guarded off on Windows (no Triton) — reuse v1's `maybe_compile_pinn` idiom
 - **Required libraries:** numpy (feature math), pyarrow (Arrow reads via existing loader)
 - **Device targets:** CUDA (6 GB laptop tier and 24 GB box tier via the existing `vram_gb` presets); CPU fallback for smoke tests
-- **Explicit exclusions:** NO `mamba_ssm`/`causal_conv1d` CUDA kernels (unavailable; scans stay plain-PyTorch loops); NO LuGre/Dahl/GMS friction law inside the model (pinned design decision); NO bristle states (zx, zy, zs) as inputs or supervision for the model trunk; μ, χ, per-wheel forces never inputs; existing decimated-cache idiom must be reused (cache stays normalization-agnostic; pass `--cache-dir` on the laptop)
+- **Explicit exclusions:** NO `mamba_ssm`/`causal_conv1d` CUDA kernels (unavailable; scans stay plain-PyTorch loops); NO LuGre/Dahl/GMS friction law inside the model (pinned design decision); NO bristle states (zx, zy, zs) as inputs or supervision for the model trunk; μ, χ, per-wheel forces never inputs; existing decimated-cache idiom must be reused (cache stays normalization-agnostic; pass `--cache-dir` on the laptop); the velocity front-end is the FIXED complementary filter matching `tools_accel/comp_filter.py`'s contract — never learned, single implementation train/deploy; V̂ and stage-2 noise are computed AT LOAD (cache stores clean channels only — filter- and stage-agnostic)
 
 ## 4. Component Breakdown
 
 ### `imu_features` (module: `mecanum_pinn/imu_features.py`)
 - **Type:** functions (numpy, data-pipeline side)
-- **Responsibility:** Build synthetic IMU and wheel-acceleration channels from native 2000 Hz trajectory arrays (central finite difference BEFORE decimation), apply an IMU corruption model (white noise, constant bias, small mounting-tilt gravity leakage), then decimate to 500 Hz alongside the existing channels.
-- **Inputs:** raw per-trajectory arrays `Vx, Vy, psi_dot [T2k]`, `w [T2k, 4]`, sim rate, decim factor, `IMUNoiseSpec`
-- **Outputs:** `imu [T500, 3]` (a_x, a_y, psi_ddot), `wdot [T500, 4]`
-- **Key constructor params:** `IMUNoiseSpec` dataclass: `accel_noise_std: float`, `gyro_deriv_noise_std: float`, `accel_bias_std: float`, `tilt_std_rad: float`, `seed: int`
-- **Depends on:** nothing (pure numpy); called from `data_v2`
+- **Responsibility:** Build the sensor-real channels from the original + `accel/<stem>_accel.arrow` sidecar pair (via the augmentation brief's `load_with_accel` join contract): (a) accelerometer observable from the sidecar's exact-dynamics `dVx, dVy` (transport-term conversion per the code-verified EOM convention) + ψ̈ from `dpsidot` + ẇ from `dw1..4`; (b) anti-alias LPF + decimate to 500 Hz; (c) staged corruption per `SensorNoiseSpec` ONLY when `noise_stage="real"` — drawn ONCE per trajectory and returned as the single arrays that BOTH the feature builder and `wrench.measured_combos` consume (single-realization rule); (d) V̂x/V̂y via the fixed complementary filter, contract-matched to `tools_accel/comp_filter.py` (strapdown mechanization + odometry anchor; crossover/integrator from the drift-audit ACCEPTANCE.md). NO finite differencing anywhere — the sidecar generator already did the FD cross-check.
+- **Inputs:** original+sidecar table pair, `SensorNoiseSpec`, `noise_stage`, `vel_filter_crossover_hz`, decim factor, seed
+- **Outputs:** `imu [T500, 3]` (a_x, a_y, ψ̈ observable), `wdot [T500, 4]`, `v_hat [T500, 2]`
+- **Key constructor params:** `SensorNoiseSpec` (shape shared with A2's `sensor_frontend_v2` spec), `seed: int`
+- **Depends on:** `tools_accel/load_with_accel`, `tools_accel/comp_filter.py` contract; called from `data_v2`
 
-### `gamma_noise` (functions inside `mecanum_pinn/imu_features.py`)
-- **Type:** function
-- **Responsibility:** Turn ground-truth γ labels into a deployment-realistic γ̂ input by injecting noise matched to A2's slip-binned error statistics (error grows with |v_s|; table supplied in config).
-- **Inputs:** `gamma [T500, 4]`, `slip_speed [T500, 4]`, binned-noise table, seed
-- **Outputs:** `gamma_hat [T500, 4]`
-- **Depends on:** slip surrogate from `wrench.py` feature helpers
+### γ̂ sources (`precompute_gamma_hat.py` script + fallback function in `mecanum_pinn/imu_features.py`)
+- **Type:** offline script (primary) + function (fallback)
+- **Responsibility:** Provide the γ̂ input channel in two modes, selected by `gamma_source`. PRIMARY `"observer_v2"`: run a designated trained Observer-v2 checkpoint (`WheelObserverV2`, γ-only) over every whitelisted trajectory offline — sliding causal w32 windows, batched inference, observer's own normalization — and cache `gamma_hat [T500,4]` per trajectory, keyed by (trajectory, observer run tag). Realistic, error-correlated estimates; this is the deployment-faithful mode and the campaign default. FALLBACK `"gt_noise"` (ablation only): inject noise into ground-truth γ using Observer v2's `gamma_error_by_slip.csv`.
+- **Inputs:** primary — trajectory measurables per the observer input contract + observer checkpoint/norm; fallback — `gamma [T500,4]`, `slip_speed [T500,4]`, binned-noise table, seed
+- **Outputs:** `gamma_hat [T500, 4]` (cached artifact in the primary mode)
+- **Depends on:** `observer_v1_py/mecanum_observer/models_v2.py` (checkpoint inference; read-only import), `wrench.py` slip features. Requires at least one completed Observer-v2 run; until then, development proceeds on the fallback.
 
 ### `data_v2` (module: `mecanum_pinn/data_v2.py`)
 - **Type:** `Dataset` + loader builders (wraps/extends v1 `data.py`)
 - **Responsibility:** Same Arrow→decimated-cache pipeline as v1, extended to (a) emit the new channels (imu, wdot, gamma_hat, plus aux labels Vpx/Vpy and slip speed for losses/eval), (b) serve **burn-in windows**: long sequences of length `L = L_burn + L_loss` (default 384 + 128 @ 500 Hz ≈ 1.02 s) with stride on the loss tail, (c) provide per-window sampling weights that upweight low-|v_s|/low-|w| content.
 - **Inputs:** config dict (v2 keys added), regime TOML, whitelist CSV, cache dir
 - **Outputs:** batches `(S [B,L,11], U [B,L,4], imu [B,L,3], wdot [B,L,4], gamma_hat [B,L,4], F_sim [B,L,8], aux {vs [B,L,4], vpx0/vpy0 [B,L,4], regime_label [B,L,4]}, mu [B], chi [B])`
-- **Key constructor params:** `seq_burn: int`, `seq_loss: int`, `stride: int`, `stick_upweight: float`
+- **Key constructor params:** `seq_burn: int`, `seq_loss: int`, `stride: int`, `stick_upweight: float`, `gamma_source: str`, `observer_ckpt: str`
 - **Depends on:** `imu_features`, v1 `data.py` internals (decimation, normalization, regime split)
 
 ### `wrench` (module: `mecanum_pinn/wrench.py`)
 - **Type:** functions + registered-buffer helper class (torch)
-- **Responsibility:** All wrench-constraint algebra in one verified place: (a) measured pinned combos — per-wheel drive diagonals `(Msat − Jw·wdot − p1·w)/R` [4] and IMU body-y / yaw net-force rows [2]; (b) the fixed roller-frame null basis n1, n2 (per-wheel free diagonals `(sin δ_i, cos δ_i)`, pair-antisymmetric); (c) assembly `F = lift(combos6) + n1·s1 + n2·s2` and its inverse decomposition `F → (combos6, s1, s2)` for loss/eval projections; (d) slip surrogate Vpx0/Vpy0 and γ̂-corrected slip velocity features.
+- **Responsibility:** All wrench-constraint algebra in one verified place: (a) measured pinned combos — per-wheel drive diagonals `(Msat − Jw·wdot − p1·w)/R` [4] and IMU body-y / yaw net-force rows [2], consuming the SAME `imu`/`wdot` arrays `imu_features` returned (single-realization rule — never a second corruption draw); (b) the fixed roller-frame null basis n1, n2 (per-wheel free diagonals `(sin δ_i, cos δ_i)`, pair-antisymmetric); (c) assembly `F = lift(combos6) + n1·s1 + n2·s2` and its inverse decomposition `F → (combos6, s1, s2)` for loss/eval projections; (d) slip surrogate Vpx0/Vpy0 and γ̂-corrected slip velocity features.
 - **Inputs/Outputs:** `combos6 [B,L,6]`, `s [B,L,2]` ↔ `F [B,L,8]` (exact linear bijection); feature builders return `[B,L,4,·]`
 - **Key constructor params:** `RobotParams` (reuse v1 `physics.py`)
 - **Depends on:** v1 `physics.py` constants; MUST be numerically verified against Arrow labels (reproduce the "VERIFIED residual 0.000" idiom in the module docstring) before anything downstream is built
@@ -129,17 +144,17 @@ each get a dedicated structural element instead of one generic encoder.
 
 ### `training_v2` (module: `mecanum_pinn/training_v2.py`)
 - **Type:** functions (stage runner)
-- **Responsibility:** Forward-model training loop: AMP, grad clip, plateau patience (reuse v1 idioms); phase schedule = grounding (gate warm-up high) → blend (warm-up annealed) → consolidation (all losses at final weights); checkpointing with `_orig_mod.` stripping; per-epoch binned validation via `evaluation_v2`.
+- **Responsibility:** Forward-ONLY training loop — v1's forward→inverse stage sequencing (`stages.py`) is NOT used and no inverse model is constructed anywhere in v2; AMP, grad clip, plateau patience (reuse v1 idioms); phase schedule = grounding (gate warm-up high) → blend (warm-up annealed) → consolidation (all losses at final weights); checkpointing with `_orig_mod.` stripping; per-epoch binned validation via `evaluation_v2`.
 - **Depends on:** `data_v2`, `losses_v2`, `MecanumForwardModelV2`
 
 ### `evaluation_v2` (module: `mecanum_pinn/evaluation_v2.py`)
 - **Type:** functions
-- **Responsibility:** Binned reporting — force RMSE by (|v_s|, |w|) bins overall and per component-group (combos vs null coords vs branch attribution), gate calibration (α vs true-regime label), null-coordinate error at detected anchor events (stick↔slip transitions of each pair), and the unchanged test-time μ-readout on F_inv against the v2 forward's shape basis equivalent (slip-branch multiplier basis).
+- **Responsibility:** Binned reporting — force RMSE by (|v_s|, |w|) bins overall and per component-group (combos vs null coords vs branch attribution), gate calibration (α vs true-regime label), null-coordinate error at detected anchor events (stick↔slip transitions of each pair), and the test-time μ-readout evaluated as forward SELF-CONSISTENCY only (recover the conditioning μ from the slip-branch multiplier basis on F_fwd). μ-ID from reconstructed forces is deferred to the inverse-v2 redesign (own session) — no F_inv appears anywhere in v2 evaluation.
 - **Depends on:** `wrench`, model diagnostics
 
 ### `config_v2` (module: `mecanum_pinn/config_v2.py`)
 - **Type:** config builder (extends v1 `build_config`)
-- **Responsibility:** All v2 knobs with pinned defaults: `v_str = 0.01`, `stiction_ratio = 1.1`, τ bands, `n_integrator`, `seq_burn/seq_loss`, IMU noise spec, γ̂ noise table, loss weights/schedules, VRAM tiers (burn-in windows shrink batch: retier for 6 GB).
+- **Responsibility:** All v2 knobs with pinned defaults: `v_str = 0.01`, `stiction_ratio = 1.1`, τ bands, `n_integrator`, `seq_burn/seq_loss`, sensor knobs (`SensorNoiseSpec`; `noise_stage: {"none","real"}` default `"none"` — campaign 1 noiseless, campaign 2 flips the toggle with no other change; `vel_filter_crossover_hz` + integrator pinned from the drift-audit ACCEPTANCE.md), γ̂ source (`gamma_source: {"observer_v2","gt_noise"}` — default `"observer_v2"`; `observer_ckpt` run-dir path; fallback noise-table path = the observer run's `gamma_error_by_slip.csv`), loss weights/schedules, VRAM tiers (burn-in windows shrink batch: retier for 6 GB).
 - **Depends on:** v1 `config.py` (imports and overlays)
 
 ### `train_v2.py` (script, package root)
@@ -151,7 +166,8 @@ each get a dedicated structural element instead of one generic encoder.
 ```
 Mecanum_PINN_Mamba_ForceRecon_v1/
 ├── FORWARD_V2_STICKSLIP_DESIGN.md    # design authority (exists)
-├── train_v2.py                        # v2 entry point (new)
+├── train_v2.py                        # v2 entry point, forward-only (new)
+├── precompute_gamma_hat.py            # offline Observer-v2 γ̂ cache builder (new)
 ├── mecanum_pinn/
 │   ├── imu_features.py                # synthetic IMU + wdot + γ̂ noise (new)
 │   ├── wrench.py                      # constraint algebra + null basis + slip features (new)
@@ -169,17 +185,17 @@ Mecanum_PINN_Mamba_ForceRecon_v1/
 
 ```python
 # mecanum_pinn/imu_features.py
-def build_imu_channels(vx: np.ndarray, vy: np.ndarray, psi_dot: np.ndarray,
-                       w: np.ndarray, sim_hz: int, decim: int,
-                       spec: IMUNoiseSpec) -> Tuple[np.ndarray, np.ndarray]:
+def build_sensor_channels(orig: Path, spec: SensorNoiseSpec, noise_stage: str,
+                          crossover_hz: float, decim: int, seed: int
+                          ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Finite-difference at sim_hz BEFORE decimation; corrupt per spec; decimate.
-    Args:
-        vx, vy, psi_dot: [T2k] native-rate body velocities
-        w:               [T2k, 4] wheel speeds
+    Sidecar-sourced sensor synthesis (load_with_accel join; no finite differencing).
+    Corruption (stage "real" only) drawn ONCE — the returned arrays are the single
+    realization consumed by BOTH the feature builder and wrench.measured_combos.
     Returns:
-        imu:  [T500, 3]  (a_x, a_y, psi_ddot), corrupted
-        wdot: [T500, 4]  wheel accelerations, corrupted
+        imu:   [T500, 3]  accelerometer observable (a_x, a_y, psi_ddot)
+        wdot:  [T500, 4]  wheel accelerations
+        v_hat: [T500, 2]  complementary-filtered body velocity (V̂x, V̂y)
     """
     ...
 
@@ -244,8 +260,8 @@ def forward_losses_v2(F: Tensor, diag: Dict[str, Tensor], batch: Dict[str, Tenso
 
 ## 7. Data Flow
 
-1. Arrow file → v1 decimation path, extended: native 2000 Hz arrays → `build_imu_channels` → decimated cache entry now also holds `imu [T,3]`, `wdot [T,4]`, aux `vs/vpx0/vpy0`, `gamma` (raw).
-2. `data_v2` windows a trajectory into `[L_burn + L_loss]` sequences; `gamma_noise` produces `gamma_hat` per window (fresh noise each epoch); normalization uses the frozen p95 scaler idiom (new channels get p95 entries appended to the scaler CSV).
+1. Original + `accel/` sidecar pair → v1 decimation path, extended: the decimated cache entry holds the CLEAN observable channels `imu [T,3]`, `wdot [T,4]` plus aux `vs/vpx0/vpy0`, `gamma` (raw) and ground-truth kinematics (loss side); V̂x/V̂y and stage-2 corruption are computed AT LOAD via `build_sensor_channels` (cache stays filter- and stage-agnostic; version bump once). S's body-velocity slots are filled with V̂x, V̂y, gyro ψ̇ — never sim Vx/Vy.
+2. `data_v2` windows a trajectory into `[L_burn + L_loss]` sequences; `gamma_hat` comes from the per-trajectory Observer-v2 cache (primary; fixed across epochs — the estimator's errors are what they are) or from fresh-per-epoch `gt_noise` injection (ablation fallback); normalization uses the frozen p95 scaler idiom (new channels get p95 entries appended to the scaler CSV).
 3. `MecanumForwardModelV2.forward`: `build_wheel_features_v2` concatenates v1 per-wheel features with imu (broadcast), wdot_i, γ̂_i, and load-balance features from `wrench` → `feats [B,L,4,f_in]`.
 4. `StickSlipEncoder` runs both scans (h0 = None in burn-in training; carried at inference) → `y_slip`, `y_stick`.
 5. `SlipHead` → `F_slip` (cap 1.0 on multipliers, direction-anchored); `StickHead` → `F_stick` (cap 1.1); `RegimeGate` computes ŝ from `y_slip`, ρ from `F_stick`, then α; blend → `F_blend [B,L,4,2]` → flatten to `[B,L,8]`.
@@ -256,12 +272,13 @@ def forward_losses_v2(F: Tensor, diag: Dict[str, Tensor], batch: Dict[str, Tenso
 ## 8. Implementation Sequence
 
 1. `wrench.py` — pure algebra, everything depends on it; verify `decompose`/`assemble` round-trip and `measured_combos` against Arrow force labels + noiseless finite-difference IMU on a real file (target: residual ≈ 0, reproducing the v1 physics.py verification idiom). This test doubles as the null-basis correctness proof.
-2. `imu_features.py` — numpy-only; validate noiseless IMU channels reproduce Arrow acceleration ground truth (finite-diff consistency).
-3. `data_v2.py` — burn-in windows + new channels + cache-format extension (bump the cache key/version so old .npz entries regenerate cleanly).
-4. `models_v2.py`: `StickSlipEncoder` first (τ-band init + h0/hT API; unit-test carried-state equivalence: one long scan == two chained half scans), then heads, gate, `NullHead`, coordinator.
-5. `losses_v2.py` — needs model diagnostics dict finalized.
-6. `training_v2.py` + `config_v2.py` + `train_v2.py` — stage runner and CLI.
-7. `evaluation_v2.py` — binned reports and anchor-event eval; wire into per-epoch validation last.
+2. `imu_features.py` — numpy-only; PREREQUISITES: `accel/` sidecars present (fleet or pilot; `instructions/arrow-accel-augmentation.md`) and the drift-audit ACCEPTANCE.md crossover/integrator selection (`instructions/frontend-drift-audit.md`). Validate: stage-1 observable channels reproduce sim dynamics; stage-1 `measured_combos` from these channels reproduce the sim net wrench exactly; V̂ tracks sim Vx/Vy post-transient.
+3. `precompute_gamma_hat.py` — offline Observer-v2 inference cache (requires one completed Observer-v2 run: checkpoint + `gamma_error_by_slip.csv`; until it exists, wire the `gt_noise` fallback and proceed).
+4. `data_v2.py` — burn-in windows + new channels (incl. γ̂ from the cache) + cache-format extension (bump the cache key/version so old .npz entries regenerate cleanly).
+5. `models_v2.py`: `StickSlipEncoder` first (τ-band init + h0/hT API; unit-test carried-state equivalence: one long scan == two chained half scans), then heads, gate, `NullHead`, coordinator.
+6. `losses_v2.py` — needs model diagnostics dict finalized.
+7. `training_v2.py` + `config_v2.py` + `train_v2.py` — forward-only runner and CLI.
+8. `evaluation_v2.py` — binned reports and anchor-event eval; wire into per-epoch validation last.
 
 ## 9. ML-Specific Considerations
 
@@ -276,6 +293,8 @@ def forward_losses_v2(F: Tensor, diag: Dict[str, Tensor], batch: Dict[str, Tenso
 
 - [ ] `wrench` round-trip exact (fp32 tol) and `measured_combos` residual ≈ 0 vs Arrow labels with noiseless IMU on a real trajectory
 - [ ] Carried-state equivalence test passes (one scan == chained scans) for both cores
+- [ ] Single-realization test: in stage "real", the IMU/ẇ arrays inside the feature path and inside `measured_combos` are the identical objects/values (no independent noise draws); in stage "none" the two stages differ ONLY in the corruption step
+- [ ] Sensor-real ablation reported: campaign metrics vs a clean-Vx/Vy input variant (quantifies the cost of the deployment contract, mirroring the A2 criterion)
 - [ ] 10-batch overfit: total loss decreases monotonically; gate does not collapse (α spans (0.1, 0.9) across regimes on the overfit set)
 - [ ] Full training: forward force grnd MSE ≤ 0.004 (F_MAX-normalized) overall — i.e. at least matches the v1 *inverse* (~5 N RMSE), vs v1 forward's 0.039–0.046
 - [ ] Stick-bin (|v_s| < 0.05 m/s) force RMSE reported and materially below v1 forward's in the same bins
@@ -284,8 +303,8 @@ def forward_losses_v2(F: Tensor, diag: Dict[str, Tensor], batch: Dict[str, Tenso
 
 ## 11. Out of Scope
 
-- Inverse-model changes and the (μ̂, χ̂) readout redesign (next discussion)
+- Inverse-model architecture, training, and the (μ̂, χ̂)-from-F_inv readout — owned by a separate brainstorm session (`chat-handoff/inverse_v2_brainstorm_handoff.md`); nothing in this brief blocks on it or is blocked by it
 - Sim-to-real fine-tuning implementation (rehearsal, anchor-event losses, adapters) — architecture hooks only (freezable parameter groups)
 - χ identification, Mz / zs channels (dropped by design)
-- Running A2 in-the-loop for γ̂ during training (noise-injected ground truth stands in; deployment wiring later)
+- Online (in-the-loop) Observer-v2 inference during training — γ̂ is precomputed offline to a per-trajectory cache; live streaming wiring is a deployment concern
 - Any modification to v1 modules, checkpoints, or the shared parallel-launcher core

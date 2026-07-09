@@ -76,3 +76,5 @@ docs/PINN Mecanum Deck - Combined.html
 #   *.npz              decimated caches (kept only outside package cache_decim/ dirs)
 #   *.toml *.jl *.py *.md *.tex *.arrow(fixtures)
 # ===========================================================================
+.aider*
+.env

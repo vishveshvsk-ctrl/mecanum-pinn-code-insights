@@ -18,7 +18,8 @@
       "Bash(git pull *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(ls \"C:\\\\Users\\\\vishv\\\\OneDrive\\\\Desktop\\\\Vishvesh_Data\\\\VNIT\\\\mecanum_pinn_head\\\\chat-handoff\" | head -20)"
     ],
     "ask": [
       "Write(*.sh)",

@@ -54,8 +54,11 @@ memory.
    biases are limited to model-agnostic facts: timescale structure, load balance,
    friction-circle caps, passivity, continuity.
 2. **IMU + encoder-rate channels become inputs** (a_x, a_y, ψ̈, ẇ_i). Synthetic IMU
-   in sim: finite-difference at the native 2000 Hz *before* decimation, plus a
-   noise/bias/mounting-tilt model for sim-to-real honesty.
+   in sim: **exact-dynamics accelerations from the `accel/` sidecar files**
+   (`instructions/arrow-accel-augmentation.md`; body EOM with stored forces — NOT
+   finite differencing, which is demoted to the sidecar generator's cross-check),
+   converted to the accelerometer observable, anti-alias LPF before decimation;
+   the noise/bias/mounting-tilt model applies only in stage 2 (decision 9).
 3. **Wrench-restructured output**: predict 6 measured force combinations by fusion +
    **2 null scalars** (s1, s2) along fixed roller-frame directions (§4). Output stays
    in the roller frame [Fpar_1..4, Fperp_1..4].
@@ -72,14 +75,28 @@ memory.
 8. **Keep a supervised floor throughout sim training** (W_SUP_MIN idiom; drop the
    physics-only tail). Physics-loss-only *fine-tuning* remains possible later because
    the wrench loss is well-posed under the restructured output (§8).
+9. **Sensor-real input contract (mirrors Observer v2 rev 4).** Direct Vx/Vy are NOT
+   inputs: V̂x/V̂y come from the same FIXED complementary filter (wheel-odometry
+   anchor + strapdown-mechanized IMU path, `V̂ += Δt·(a ± ψ̇·V̂-coupling)`; crossover
+   and integrator selected by `instructions/frontend-drift-audit.md`); ψ̇ is the
+   gyro; accel inputs are the accelerometer observable (`V̇x − ψ̇·Vy`, `V̇y + ψ̇·Vx`
+   — EOM convention code-verified vs run_one.jl). Staged noise: campaign 1
+   `noise_stage="none"` (exact-by-construction wrench — architecture validated
+   free of sensor realism), campaign 2 flips the toggle with no other change.
+   **Single-realization rule:** the forward consumes the IMU twice — encoder
+   features AND measured wrench combos — one physical sensor ⇒ ONE corruption
+   realization per trajectory shared by both paths, never independent draws.
+   Sensor-real applies to model INPUTS only; ground-truth kinematics stay legal on
+   the loss side. Yaw angle is needed nowhere (body-frame formulation).
 
 ---
 
 ## 3. New inputs and features
 
-Per wheel i, on top of the v1 measurables [w_i, sin(12θ_i), cos(12θ_i), Msat_i, Vx, Vy, ψ̇]:
+Per wheel i, on top of the v1 measurables [w_i, sin(12θ_i), cos(12θ_i), Msat_i] and
+the sensor-real body globals [V̂x, V̂y, ψ̇_gyro] (decision 9 — sim Vx/Vy never inputs):
 
-- **IMU body channels:** a_x, a_y, ψ̈ (shared across wheels).
+- **IMU body channels:** a_x, a_y, ψ̈ — accelerometer observables (shared across wheels).
 - **Wheel acceleration:** ẇ_i (encoder-differentiated; from ω at 2000 Hz in sim).
 - **Load-balance features** (friction-model-agnostic stick physics — below breakaway
   stick force ≈ applied tangential load):
