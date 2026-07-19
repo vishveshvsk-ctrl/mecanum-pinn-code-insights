@@ -129,7 +129,7 @@ each get a dedicated structural element instead of one generic encoder.
 
 ### `MecanumForwardModelV2` (class in `models_v2.py`)
 - **Type:** `nn.Module` (coordinator)
-- **Responsibility:** Feature build (v1 wheel features ++ IMU/wdot/γ̂/load-balance channels) → dual encoder → branch heads → gate blend → wrench-frame assembly: decompose blended `F_blend` into combos, **fuse** its 6 measured combos toward the sensor-derived combos (learned small-correction residual), re-assemble with `NullHead`'s (s1, s2). Exposes carried-state streaming API and returns all diagnostics.
+- **Responsibility:** Feature build (v1 wheel features ++ IMU/wdot/γ̂/load-balance channels) → dual encoder → branch heads → gate blend → wrench-frame assembly: decompose blended `F_blend` into combos, **fuse** its 6 measured combos toward the sensor-derived combos (learned small-correction residual), re-assemble with `NullHead`'s (s1, s2). Exposes carried-state streaming API and returns all diagnostics. **Conditioning interface (design decision 10):** accepts `mu` as `[B]` (uniform — what training data supplies) OR `[B,4]` (per-wheel — the condition-adaptation hook); broadcast internally; same for `stiction_ratio` if exposed. Also exposes a fusion-bypass flag so TWIN/ROLLOUT mode returns `F_blend` (open-loop force law) — the physics-loss k-step integration MUST consume `F_blend`, never the fused output (fusing measured acceleration into the force that predicts that acceleration trivializes the residual).
 - **Inputs:** the full batch contract of §1
 - **Outputs:** `F [B,L,8]` physical + `Dict` diagnostics `{alpha, s_hat, s_null, F_slip, F_stick, combos_pred, combos_meas}`
 - **Key constructor params:** config dict (v2 keys)
@@ -307,4 +307,6 @@ def forward_losses_v2(F: Tensor, diag: Dict[str, Tensor], batch: Dict[str, Tenso
 - Sim-to-real fine-tuning implementation (rehearsal, anchor-event losses, adapters) — architecture hooks only (freezable parameter groups)
 - χ identification, Mz / zs channels (dropped by design)
 - Online (in-the-loop) Observer-v2 inference during training — γ̂ is precomputed offline to a per-trajectory cache; live streaming wiring is a deployment concern
+- The condition-monitoring/adaptation layer itself (per-wheel RLS estimators, CUSUM/GLR detectors, fault-injection campaign — design decision 10): this brief only future-proofs the `[B,4]` μ conditioning interface and the fusion-bypass twin mode
+- The PINN velocity observer (design decision 11): v2 trains on the fixed-filter V̂; the estimator swap is a later drop-in behind the same interface
 - Any modification to v1 modules, checkpoints, or the shared parallel-launcher core

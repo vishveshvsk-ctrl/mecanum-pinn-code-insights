@@ -18,13 +18,14 @@ EOM), `make_accel_sidecars.py` (`load_with_accel` join contract),
 land in), `frontend_audit.py` (sweep CLI + report generator).
 
 **Audit outputs** (`code_insights/observer_v1_py/report_frontend/`):
-`frontend_audit.csv` (6,841,600 rows), `acceptance_table.csv`,
+ `acceptance_table.csv`,
 `ACCEPTANCE.md`, 4 PNG figures. Full approved fleet, no sampling: 5,345 files
 across 8 profiles (spin_creep 1692, octagon 1422, long_circle 762,
 coupled_vomega 647, ellipse 288, spiral_orbit 204, multisine_50%cap 165,
 multisine_75%cap 165), swept over 120 cells/file (2 integrators × 5
 crossovers [0.2/0.5/1/2/5 Hz] × 2 rates [500/2000 Hz] × 2 noise stages × 3
 modes) + a cold-start v0 supplement.
+`frontend_audit.csv` (6,841,600 rows), moved to "C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\data\IMU_frontend_audit\frontend_audit.csv"
 
 **Thresholds** (never invented — see `mecanum_observer/config.py`):
 overall RMSE ≤ 0.0384 m/s (`2% * PRED_P95['Vx']=1.919952`); low-slip RMSE

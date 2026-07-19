@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Observer Grounding Results — VNIT</title>
+<!-- Self-contained deck: theme cloned verbatim from presentation/deck.html ("Academic Navy").
+     MathJax loaded locally via assets/tex-svg.js (relative path — keep this file next to deck.html). -->
+<!-- ===================== Academic Navy theme (cloned from deck.html) ===================== -->
+<style>
+:root{
+  --navy:#10243E; --navy2:#1B3A5B; --steel:#3E6691; --steell:#7E9BBE;
+  --gold:#B07D2B; --goldl:#D8AE5C; --ink:#1C2530; --light:#EEF2F7;
+  --paper:#FFFFFF; --grid:#C9D3DF; --red:#9B2D30; --green:#2E6B4F;
+  --serif:"Palatino Linotype","Book Antiqua",Georgia,serif;
+  --sans:"Segoe UI",system-ui,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:#5b6470;}
+body{font-family:var(--serif);color:var(--ink);counter-reset:slide;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+
+.slide{
+  position:relative;width:1280px;height:720px;background:var(--paper);
+  margin:18px auto;overflow:hidden;display:flex;flex-direction:column;
+  counter-increment:slide;box-shadow:0 4px 18px rgba(0,0,0,.35);
+}
+/* one 16:9 page per slide for PDF export */
+@media print{
+  html,body{background:#fff;}
+  @page{size:13.333in 7.5in;margin:0;}
+  .slide{margin:0;box-shadow:none;page-break-after:always;break-after:page;}
+  .slide:last-child{page-break-after:auto;break-after:auto;}
+}
+/* header band */
+.hdr{height:60px;background:var(--navy);color:#fff;display:flex;align-items:center;
+  justify-content:space-between;padding:0 30px;flex:0 0 auto;}
+.hdr .sec{font-family:var(--sans);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--goldl);}
+.hdr .sec b{color:#fff;font-weight:600;}
+.hdr .brand{display:flex;align-items:center;gap:10px;}
+.hdr .brand img{height:38px;background:#fff;border-radius:5px;padding:2px 4px;}
+.hdr .brand .txt{font-family:var(--sans);font-size:11px;line-height:1.15;text-align:right;color:#dfe7f1;}
+.hdr .brand .txt b{display:block;color:#fff;font-size:12px;letter-spacing:.02em;}
+/* content */
+.body{flex:1 1 auto;padding:20px 34px 8px 34px;overflow:hidden;display:flex;flex-direction:column;min-height:0;}
+.body h1{font-size:27px;color:var(--navy);font-weight:600;line-height:1.12;margin-bottom:2px;}
+.body h1 .accent{color:var(--gold);}
+.subttl{font-family:var(--sans);font-size:13.5px;color:var(--steel);margin-bottom:10px;}
+.rule{height:3px;width:100%;background:linear-gradient(90deg,var(--gold) 0 64px,var(--grid) 64px 100%);margin:6px 0 12px;}
+/* footer */
+.ftr{height:30px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:0 30px;font-family:var(--sans);font-size:10.5px;color:#6a7686;border-top:1px solid var(--grid);}
+.ftr .pg::after{content:counter(slide);}
+.ftr .vn{color:var(--navy);font-weight:600;}
+
+/* typography helpers */
+.body p{font-size:16.5px;line-height:1.42;margin:6px 0;}
+ul{margin:4px 0 4px 20px;} li{font-size:16px;line-height:1.4;margin:4px 0;}
+.small li,.small p{font-size:14.3px;line-height:1.34;}
+.tiny{font-size:12.5px;line-height:1.3;}
+b.key,.k{color:var(--navy);font-weight:600;}
+.g{color:var(--gold);font-weight:600;}
+.rd{color:var(--red);font-weight:600;}
+.gr{color:var(--green);font-weight:600;}
+.st{color:var(--steel);font-weight:600;}
+
+/* layout */
+.cols{display:flex;gap:20px;flex:1 1 auto;min-height:0;}
+.col{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;}
+.c60{flex:1.5;} .c40{flex:1;} .c55{flex:1.22;} .c45{flex:1;}
+.panel{background:var(--light);border-left:4px solid var(--steel);border-radius:4px;padding:10px 14px;margin:8px 0;}
+.panel.gold{border-left-color:var(--gold);}
+.panel.red{border-left-color:var(--red);}
+.panel.green{border-left-color:var(--green);}
+.panel h3{font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin-bottom:4px;}
+.panel.gold h3{color:var(--gold);} .panel.red h3{color:var(--red);} .panel.green h3{color:var(--green);}
+
+/* figure placeholder */
+.fph{border:2px dashed var(--goldl);background:repeating-linear-gradient(45deg,#fbf7ef,#fbf7ef 12px,#f5eede 12px,#f5eede 24px);
+  border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;color:var(--gold);padding:12px;min-height:120px;height:100%;}
+.fph .lab{font-family:var(--sans);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#b9933f;margin-bottom:6px;}
+.fph .desc{font-family:var(--serif);font-size:14px;color:var(--navy);line-height:1.3;max-width:92%;}
+.fph .fn{font-family:var(--sans);font-size:11px;color:#9a9485;margin-top:8px;}
+.fph .ic{font-size:26px;color:var(--goldl);margin-bottom:4px;}
+.figwrap{height:100%;width:100%;display:flex;align-items:center;justify-content:center;}
+.figimg{max-width:100%;max-height:100%;object-fit:contain;border:1px solid var(--grid);border-radius:5px;background:#fff;}
+
+/* table */
+table{border-collapse:collapse;width:100%;font-family:var(--sans);}
+th,td{border:1px solid var(--grid);padding:3px 7px;font-size:12.5px;text-align:left;}
+th{background:var(--navy);color:#fff;font-weight:600;}
+tr:nth-child(even) td{background:var(--light);}
+td .u{color:#7a8390;}
+
+/* math sizing */
+mjx-container{font-size:96% !important;}
+.eqs mjx-container{font-size:104% !important;}
+.eqbox{background:var(--light);border:1px solid var(--grid);border-radius:5px;padding:6px 12px;margin:7px 0;}
+
+/* state vector chips */
+.stategrid{display:grid;grid-template-columns:repeat(2,1fr);gap:5px 16px;font-family:var(--sans);font-size:12px;}
+.stategrid div{padding:2px 0;border-bottom:1px dotted var(--grid);}
+.stategrid .idx{color:var(--gold);font-weight:700;}
+
+/* ===== title slide ===== */
+.title{background:var(--navy);color:#fff;justify-content:flex-start;}
+.title .tbar{height:8px;background:linear-gradient(90deg,var(--gold),var(--goldl));}
+.title .twrap{flex:1;display:flex;flex-direction:column;padding:46px 70px;}
+.title .toprow{display:flex;align-items:center;justify-content:space-between;}
+.title .toprow img{height:84px;background:#fff;border-radius:8px;padding:6px 8px;}
+.title .inst{font-family:var(--sans);text-align:right;font-size:14px;color:#cdd8e6;line-height:1.3;}
+.title .inst b{display:block;color:#fff;font-size:16px;}
+.title h1{font-family:var(--serif);font-size:42px;line-height:1.1;margin-top:42px;color:#fff;font-weight:600;}
+.title h1 .hl{color:var(--goldl);}
+.title .sub{font-family:var(--serif);font-size:19px;color:#c9d6e6;margin-top:16px;line-height:1.4;max-width:1000px;}
+.title .meta{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;
+  font-family:var(--sans);font-size:14px;color:#aebfd2;}
+.title .meta .conf{color:var(--goldl);font-weight:600;font-size:16px;letter-spacing:.04em;}
+.title .ph{color:var(--goldl);}
+
+/* section divider visual on outline */
+.toc{display:flex;flex-direction:column;gap:9px;margin-top:6px;}
+.toc .item{display:flex;align-items:center;gap:14px;background:var(--light);border-radius:6px;padding:10px 16px;border-left:5px solid var(--gold);}
+.toc .num{font-family:var(--sans);font-weight:700;color:#fff;background:var(--navy);border-radius:50%;
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 auto;}
+.toc .t{font-size:16.5px;color:var(--navy);font-weight:600;}
+.toc .d{font-family:var(--sans);font-size:12.5px;color:var(--steel);}
+
+/* flowchart */
+.flow{display:flex;flex-direction:column;gap:7px;flex:1 1 auto;justify-content:center;}
+.frow{display:flex;align-items:center;justify-content:center;gap:0;}
+.fbox{border-radius:7px;padding:8px 12px;font-family:var(--sans);font-size:12.5px;line-height:1.25;
+  text-align:center;color:#fff;min-width:150px;max-width:215px;}
+.fbox .bt{font-weight:700;font-size:13px;display:block;margin-bottom:2px;}
+.fbox.julia{background:var(--navy);} .fbox.proc{background:var(--steel);}
+.fbox.data{background:var(--gold);} .fbox.stop{background:var(--red);}
+.fbox.pinn{background:var(--green);}
+.farr{color:var(--steel);font-size:24px;font-weight:700;padding:0 8px;}
+.fdown{color:var(--steel);font-size:22px;text-align:center;}
+.flab{font-family:var(--sans);font-size:10.5px;color:#7a8390;text-align:center;}
+</style>
+
+<!-- ===================== MathJax (local, tex->svg, self-contained) ===================== -->
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)'],['$','$']],displayMath:[['$$','$$'],['\\[','\\]']]},
+  svg:{fontCache:'global'},
+  startup:{ready:()=>{MathJax.startup.defaultReady();
+    MathJax.startup.promise.then(()=>{document.body.classList.add('mj-done');});}}
+};
+</script>
+<script src="assets/tex-svg.js" id="MathJax-script" async></script>
+</head>
+<body>
+
+<!-- ============================= 1. TITLE ============================= -->
+<section class="slide title">
+  <div class="tbar"></div>
+  <div class="twrap">
+    <div class="toprow">
+      <img src="assets/vnit_logo.jpeg" alt="VNIT"/>
+      <div class="inst"><b>Visvesvaraya National Institute of Technology, Nagpur</b>
+        Department of Mechanical Engineering</div>
+    </div>
+    <h1>From LuGre States to a Working <span class="hl">Slip Gate</span></h1>
+    <div class="sub">Grounding-phase results for the roller-spin state observer &mdash;
+      <b style="color:#fff">v1</b> (supervised, true-state) &rarr;
+      <b style="color:#fff">v2-Hy3</b> (sensor-real slip baseline) &rarr;
+      <b style="color:#fff">gamma-kin</b> (residual, physics-primed) parametrization.</div>
+    <div class="meta">
+      <div>
+        <span class="ph">Vishvesh Koranne</span> &nbsp;&middot;&nbsp; Research Scholar<br/>
+        <span style="color:#8fa3ba">Guide: Prof. Shital S. Chiddarwar</span>
+      </div>
+      <div style="text-align:right">
+        <span class="conf">Roller-spin observer &middot; grounding phase (physics OFF)</span><br/>
+        <span style="color:#8fa3ba">Cross-fold TEST, physical RMSE &middot; VNIT Nagpur 2026</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= 2. LINEAGE OVERVIEW ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Evolution &nbsp; / &nbsp; <b>Three versions</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body small">
+    <h1>The observer's <span class="accent">three</span> architectures</h1>
+    <div class="subttl">Same KUKA youBot 4-Mecanum platform &middot; per-wheel MambaLite SSM encoder throughout</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col">
+        <div class="panel"><h3>v1 &mdash; supervised state observer</h3>
+          <p class="tiny"><b class="key">Inputs (3 global):</b> [V<sub>x</sub>,V<sub>y</sub>,&psi;&#775;] + per-wheel
+            [M<sub>sat</sub>,&omega;,sin&theta;&#771;,cos&theta;&#771;].</p>
+          <p class="tiny"><b class="key">Targets:</b> [&gamma;, z<sub>x</sub>, z<sub>y</sub>] &mdash; roller spin
+            <b>plus LuGre bristle states</b>.</p>
+          <p class="tiny"><b class="key">Intent:</b> learn the full friction internal state to reconstruct forces.</p>
+          <p class="tiny" style="color:var(--red)"><b>Problem:</b> z<sub>x</sub>,z<sub>y</sub> are an un-observable
+            modeling fiction &mdash; no sensor sees them &mdash; and the global inputs used near-true V<sub>x</sub>,V<sub>y</sub>.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="panel gold"><h3>v2-Hy3 &mdash; the slip baseline</h3>
+          <p class="tiny"><b class="key">Inputs (5 global, sensor-real):</b> [V&#770;<sub>x</sub>,V&#770;<sub>y</sub>,
+            &psi;&#775;<sub>gyro</sub>,a<sub>x</sub>,a<sub>y</sub>] &mdash; deployable complementary filter (wheel-odom
+            LPF + IMU HPF, 1&nbsp;Hz crossover) + raw IMU.</p>
+          <p class="tiny"><b class="key">Targets:</b> &gamma; head <b>+ &Delta;V head</b>
+            (V<sub>true</sub>&minus;V&#770;, per-axis).</p>
+          <p class="tiny"><b class="key">New:</b> regime-split physics loss + a GT-free derived slip gate
+            g&nbsp;=&nbsp;&sigma;((|V<sub>p</sub>|&minus;c)/w).</p>
+          <p class="tiny"><b class="key">Intent:</b> deployable, sim-to-real-honest &mdash; nothing true-state at inference.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="panel green"><h3>gamma-kin &mdash; residual parametrization</h3>
+          <p class="tiny">Same encoder + &Delta;V head; <b class="key">only how &gamma; is produced changes.</b></p>
+          <p class="tiny">From the nonholonomic no-slip model, V<sub>PiY</sub>=0 fixes the roller spin in closed form
+            (&gamma;<sub>noslip</sub>); the network learns only the <b>deviation</b>.</p>
+          <p class="tiny"><b class="key">Intent:</b> let a physics prior carry the signal &mdash; same model capacity
+            (8,357 params), <b class="gr">~4&times; better &gamma;</b> on the harder (estimated) inputs.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 3. v1 -> v2-Hy3 ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Evolution &nbsp; / &nbsp; <b>v1 &rarr; v2-Hy3</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Dropping the bristle states, going <span class="accent">sensor-real</span></h1>
+    <div class="subttl">Three structural moves in the "hybrid v3" redesign (`train_observer_v2hy3.py`)</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c50 small">
+        <ul>
+          <li><b class="key">Sensor-real front-end.</b> True V<sub>x</sub>,V<sub>y</sub> replaced by a deployable
+            causal complementary filter (odometry LPF anchor + IMU strapdown HPF) plus raw accel/gyro. Nothing
+            true-state enters at inference.</li>
+          <li><b class="key">Bristle states dropped.</b> A &Delta;V head predicts the body-velocity correction
+            &Delta;V&nbsp;=&nbsp;V<sub>true</sub>&minus;V&#770; (normalized per-axis by <code>dv_scale</code>),
+            alongside the &gamma; head.</li>
+          <li><b class="key">Regime-split physics + derived gate.</b> A GT-free |V<sub>p</sub>|(&gamma;&#770;,&Delta;V&#770;)
+            is formed from the two heads; a sigmoid gate blends a stick residual and a slip (roller-torque-balance)
+            residual &mdash; the slip regime is <em>derived</em>, not label-gated at the endpoint.</li>
+        </ul>
+      </div>
+      <div class="col c50">
+        <div class="panel red"><h3>Why v1 could not survive sim-to-real</h3>
+          <p class="tiny">z<sub>x</sub>, z<sub>y</sub> are LuGre <b>bristle</b> states &mdash; they exist in the
+            simulator's 39-D plant but no physical sensor measures them. Training a head to predict them only
+            works while the inputs are also true-state, which a real robot never has.</p></div>
+        <div class="panel gold"><h3>What "deployable" buys</h3>
+          <p class="tiny">Every v2-Hy3+ input is something a real youBot can compute online: wheel odometry, IMU
+            accel/gyro, motor saturation flags. The observer's outputs are therefore usable at inference, not just
+            in simulation.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 4. v2-Hy3 -> gamma-kin ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Evolution &nbsp; / &nbsp; <b>v2-Hy3 &rarr; gamma-kin</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body eqs">
+    <h1>&gamma; as a residual off the analytic <span class="accent">no-slip</span> base</h1>
+    <div class="subttl">`train_observer_v2hy3_gammakin.py` &mdash; same encoder and &Delta;V head; only how &gamma; is produced changes</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55">
+        <div class="eqbox">$$\gamma_{noslip,i}=\frac{V_Y+\Omega\,\rho_{Xi}}{(R_d-R)\cos\delta_i}\qquad\text{(}V_Y,\Omega\text{ only)}$$</div>
+        <div class="eqbox">$$\hat\gamma=\gamma_{noslip}(V_{y,used})+\Delta\hat\gamma\cdot\text{dgamma\_scale}$$</div>
+        <div class="eqbox">$$V_{y,used}=\hat V_y+\big(\lambda\,\Delta V_{true}+(1-\lambda)\,\Delta\hat V\big)_y$$</div>
+        <p class="tiny" style="color:#6a7686">&lambda;: label &rarr; deployable phase-out knob; the network now learns
+          only the small slip <b>deviation</b> from the closed-form no-slip base.</p>
+      </div>
+      <div class="col c45 small">
+        <div class="panel green"><h3>Why the residual works</h3>
+          <p class="tiny">Measured over 9.94M samples: &gamma;<sub>noslip</sub> alone predicts &gamma; to
+            <b>0.285 rad/s RMS in stick</b> vs the v2-Hy3 head's 5.56 (~19&times;). <code>dgamma_scale</code> =
+            &gamma;<sub>p95</sub>/10 = 8.28 (re-using &gamma;<sub>p95</sub>=82.8 would starve the head &mdash; the
+            same normalization trap as &Delta;V).</p></div>
+        <div class="panel gold"><h3>Two supporting normalization fixes</h3>
+          <p class="tiny"><b>Uniform <code>dv_scale</code></b> = mean(p95 V<sub>x</sub>, p95 V<sub>y</sub>) =
+            1.297 m/s, replacing per-axis (1.92, 0.673) &mdash; &part;|V<sub>p</sub>|/&part;&Delta;V&asymp;1 on both
+            axes, so the loss tracks the physical error isotropically.</p>
+          <p class="tiny"><code>gamma_high_slip_upweight</code> <b>3.0&rarr;1.0</b> &mdash; the old 3&times; weight
+            on the ~2% high-slip tail pulled effort away from the 20&ndash;28% <b>stick</b> bin where the gate
+            actually decides.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 5. TWO BUGS ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Evolution &nbsp; / &nbsp; <b>Two latent bugs fixed</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Two bugs found en route &mdash; both had pinned the gate</h1>
+    <div class="subttl">Both were in the baseline files; both were raising the gate off the floor</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col">
+        <div class="panel red"><h3>Bug 1 &mdash; base double-count</h3>
+          <p class="small">Slip base was computed as
+            <code>Vpx0_hat + (V&#770;+&Delta;V&#770;)</code>, but <code>Vpx0_hat</code> already carries
+            V&#770; &mdash; V&#770; was added twice.</p>
+          <p class="small"><b class="key">Correct form:</b> <code>Vpx0_hat + &Delta;V&#770;</code>.</p>
+        </div>
+        <div class="panel green"><h3>Impact</h3>
+          <p class="small">Identity floor (true &gamma;, true &Delta;V &rarr; true slip) dropped from
+            <b>0.857 &rarr; 0.0025 m/s</b> &mdash; a <b class="gr">340&times;</b> tightening of the best-case slip
+            reconstruction the gate could ever see.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="panel red"><h3>Bug 2 &mdash; &gamma; double de-normalization</h3>
+          <p class="small">In <code>physics_loss_hy3</code>, callers passed &gamma; already in rad/s into a function
+            that <b>also</b> de-normalizes in-graph &mdash; &gamma; was scaled &times;82.8 <b>twice</b>.</p>
+        </div>
+        <div class="panel green"><h3>Impact</h3>
+          <p class="small">Pinned the gate at <b>g=1 everywhere</b> (<code>stick_frac=0</code>) &mdash; this was the
+            run-1 "physics slip-only" symptom: the model looked saturated in slip when the gate math itself was
+            broken, not the observer.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 6. RESULTS TABLE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Results &nbsp; / &nbsp; <b>Grounding table</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Grounding results &mdash; <span class="accent">cross-fold TEST</span>, physical RMSE</h1>
+    <div class="subttl">S1 model &rarr; S2 data and vice versa &middot; &gamma; in rad/s &middot; true stick_frac &asymp; 0.22</div>
+    <div class="rule"></div>
+    <table>
+      <thead><tr><th>Version (best grounding)</th><th>&gamma; all</th><th>&gamma; stick</th>
+        <th>dV<sub>x</sub> R&sup2;</th><th>dV<sub>y</sub> R&sup2;</th><th>|V<sub>p</sub>| gate err</th><th>stick_frac</th></tr></thead>
+      <tbody>
+        <tr><td><b>v1</b> (&gamma;,z<sub>x</sub>,z<sub>y</sub> &middot; TRUE input) S1</td><td>4.37</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+        <tr><td><b>v1</b> (&gamma;,z<sub>x</sub>,z<sub>y</sub> &middot; TRUE input) S2</td><td>3.87</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+        <tr><td><b>v2-Hy3 baseline</b> S1</td><td>5.45</td><td>5.43</td><td>0.76</td><td>0.99</td><td>6.51 cm/s</td><td>0.076</td></tr>
+        <tr><td><b>v2-Hy3 baseline</b> S2</td><td>4.20</td><td>5.06</td><td class="rd">&minus;0.32</td><td>0.98</td><td>6.47</td><td>0.034</td></tr>
+        <tr><td><b class="gr">gamma-kin &lambda;=0</b> (deploy) S1</td><td class="gr">0.98</td><td class="gr">0.62</td><td>0.96</td><td>0.99</td><td>1.21</td><td class="gr">0.204</td></tr>
+        <tr><td><b class="gr">gamma-kin &lambda;=0</b> (deploy) S2</td><td class="gr">1.26</td><td class="gr">0.91</td><td>0.93</td><td>0.99</td><td>1.54</td><td class="gr">0.179</td></tr>
+        <tr><td><b>gamma-kin &lambda;=1</b> (label) S1</td><td>0.72</td><td>0.34</td><td>0.96</td><td>0.99</td><td>1.09</td><td>0.201</td></tr>
+        <tr><td><b>gamma-kin &lambda;=1</b> (label) S2</td><td>0.88</td><td>0.47</td><td>0.93</td><td>0.99</td><td>1.41</td><td>0.125</td></tr>
+      </tbody>
+    </table>
+    <p class="tiny" style="color:#6a7686;margin-top:8px">&lambda;=1 uses the true-V<sub>y</sub> label in the base,
+      &lambda;=0 the deployable V&#770;+&Delta;V&#770;. v1 has no &Delta;V head / gate &mdash; those columns are N/A.
+      v1 &gamma; is a <b>direct</b> checkpoint eval (stored val_loss = 0.1&middot;sup + physics is unusable for &gamma;);
+      v1 numbers are the best per fold across the w{8,16,32,64}/batch/epoch grid (full grid spans 3.9&ndash;7.0 rad/s).</p>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 7. FULL LINEAGE GAMMA STORY ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Results &nbsp; / &nbsp; <b>The &gamma; story</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The full-lineage &gamma; story <span class="accent">(the headline)</span></h1>
+    <div class="subttl">Two things the v2-Hy3&rarr;gamma-kin row alone hides</div>
+    <div class="rule"></div>
+    <table>
+      <thead><tr><th>Version</th><th>&gamma; RMSE range (rad/s)</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>v1 (3-state, TRUE V<sub>x</sub>,V<sub>y</sub>,&psi;&#775;)</td><td>~3.9&ndash;5.2</td><td class="tiny">baseline wall</td></tr>
+        <tr><td>v2-Hy3 (&gamma;+&Delta;V, sensor-real V&#770;)</td><td>~4.2&ndash;5.4</td><td class="tiny">same wall, harder inputs</td></tr>
+        <tr><td><b class="gr">gamma-kin &lambda;=0 (deployable)</b></td><td class="gr"><b>~0.98&ndash;1.26</b></td><td class="tiny gr">&larr; ~4&times; better</td></tr>
+        <tr><td>gamma-kin &lambda;=1 (label-assisted)</td><td>~0.72&ndash;0.88</td><td class="tiny">upper bound</td></tr>
+      </tbody>
+    </table>
+    <div class="cols" style="margin-top:10px">
+      <div class="col">
+        <div class="panel red"><h3>v1 &asymp; v2-Hy3 on &gamma;, despite TRUE inputs</h3>
+          <p class="small">Moving to the harder sensor-real front-end did <b>not</b> cost &gamma; accuracy &mdash; the
+            ~5 rad/s wall was <b>not</b> an input-quality limit. It was the difficulty of predicting a
+            p95&nbsp;=&nbsp;84 rad/s signal <em>directly</em>. Both versions hit the same wall from opposite input
+            qualities.</p></div>
+      </div>
+      <div class="col">
+        <div class="panel green"><h3>gamma-kin breaks the wall on the HARDER inputs</h3>
+          <p class="small">~4&times; better while still on estimated (not true) inputs, purely by changing &gamma;
+            from a direct target to a residual off the analytic no-slip base. The gain is the <b>physics prior</b>,
+            not better data or more capacity &mdash; model unchanged at 8,357 params (v1 was 6,277).</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 8. GATE & GAMMA ACCURACY ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Results &nbsp; / &nbsp; <b>Gate &amp; &gamma; accuracy</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>What the changes bought &mdash; the gate <span class="accent">works</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <div class="panel green"><h3>The gate now works</h3>
+          <p>stick_frac <b class="rd">0.03&ndash;0.08</b> &rarr; <b class="gr">0.18&ndash;0.20</b> against a true
+            ~0.22. The baseline's |V<sub>p</sub>| error (6.5 cm/s) sat 6&times; above the 1 cm/s gate width, so
+            g&rarr;1 everywhere; gamma-kin brings it to ~1.2&ndash;1.5 cm/s.</p>
+          <p class="tiny"><b class="key">Attribution:</b> &gamma; was <b>82&ndash;87%</b> of the gate error &mdash;
+            swapping in true-&gamma; recovers stick_frac 0.08&rarr;0.18; swapping in true-&Delta;V recovers
+            <b>nothing</b>. This is exactly why the effort went into the &gamma; parametrization.</p>
+        </div>
+        <div class="panel gold"><h3>&gamma; improved 4&ndash;7&times;</h3>
+          <p>4&ndash;7&times; overall, <b>6&ndash;9&times; in the stick regime</b> &mdash; the residual replaces
+            "predict a p95=84 rad/s signal to 1%" with "predict &asymp;0 in stick, a small deviation in slip." A
+            physics prior doing the heavy lifting, not more capacity (model unchanged at 8,357 params).</p>
+        </div>
+      </div>
+      <div class="col c45">
+        <div class="fph">
+          <div class="lab">Pending figure</div>
+          <div class="desc">|V<sub>p</sub>| gate-error attribution bar &mdash; baseline vs true-&gamma; swap vs
+            true-&Delta;V swap</div>
+          <div class="fn">regime_split_attrib.py &middot; regime_attrib.json</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 9. DELTA-V / DECIMATION / ENCODER ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Results &nbsp; / &nbsp; <b>&Delta;V &middot; decimation &middot; encoder</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body small">
+    <h1>What the changes bought &mdash; <span class="accent">everything else</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col">
+        <div class="panel green"><h3>&Delta;V<sub>x</sub> repaired</h3>
+          <p>Per-axis normalization left S2's x-channel at <b class="rd">R&sup2; = &minus;0.32</b> &mdash; worse than
+            predicting zero. Uniform <code>dv_scale</code> alone (the &Delta;V path is detached from &gamma;) took
+            it to <b class="gr">R&sup2; = 0.90&ndash;0.96</b>. Raw front-end error (~4.3 cm/s x, ~10.1 cm/s y) is
+            corrected to ~1 cm/s &mdash; capturing 77% of x, 92% of y.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="panel"><h3>Decimation is not the limiter</h3>
+          <p>The 500 Hz per-component reconstruction floor is <b>0.16 cm/s</b> &mdash; one order of magnitude below
+            the gate width and ~10&times; below head error. The reconstruction "noise floor" was the two bugs, then
+            the &gamma; head &mdash; never the sample rate.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="panel gold"><h3>Shared encoder is right</h3>
+          <p>A gradient-cosine diagnostic shows &gamma; and &Delta;V gradients are <b>orthogonal</b>
+            (mean |cos| &le; 0.05) &mdash; no representational conflict, so a split encoder is unwarranted. GradNorm
+            was rejected: it crushes the priority (&gamma;) task purely because &gamma; has the larger gradient
+            magnitude, which the orthogonality shows is not a conflict signal.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 10. CONVERGENCE / BUDGET ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Results &nbsp; / &nbsp; <b>Convergence &amp; budget</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Convergence &mdash; where the epoch budget <span class="accent">actually</span> helps</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c45 small">
+        <p>Grounding was extended <b class="key">80 &rarr; 150 epochs</b>; &gamma; gained a further
+          <b class="gr">~12%</b> (diminishing returns), while <b class="rd">velocity floored by ~ep30&ndash;40</b>
+          and never improved after.</p>
+        <div class="panel red"><h3>Velocity's limit is architectural</h3>
+          <p class="tiny">The 32-sample window vs the filter's ~80-sample memory &mdash; i.e. it needs a longer
+            window or stateful inference, <b>not more epochs</b>.</p></div>
+      </div>
+      <div class="col c55">
+        <div class="fph">
+          <div class="lab">Pending figure</div>
+          <div class="desc">Per-epoch physical RMSE trend, &gamma; and &Delta;V, epochs 0&rarr;150</div>
+          <div class="fn">physical_rmse_trend_full_0to150.json</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 11. CLOSING ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">III &middot; Evidence &nbsp; / &nbsp; <b>Status &amp; repo index</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Current status &mdash; <span class="accent">deployable phase-out</span> in progress</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <div class="panel gold"><h3>In progress &mdash; `*_ftphaseout`</h3>
+          <p>Fork from ep80, <b class="key">freeze encoder + &Delta;V head</b>, ramp &lambda; 1&rarr;0 over 40 epochs
+            then hold 40, fine-tuning <b>only</b> the &gamma; head.</p>
+          <p class="tiny">Because &Delta;V is frozen, <code>dv_hat</code> is a fixed base, so the &gamma; head
+            re-fits to the deployable base without chasing a moving target &mdash; closing the
+            &lambda;=1&rarr;&lambda;=0 mismatch (the 0.72&rarr;0.98 / 0.88&rarr;1.26 gap) without risking the
+            ~1 cm/s &Delta;V. <b class="st">Results pending.</b></p></div>
+      </div>
+      <div class="col c45">
+        <div class="panel"><h3>Evidence index (repo-persisted)</h3>
+          <p class="tiny" style="font-family:var(--sans)">
+            <code>runs/S{1,2}..._grnd80_slip02/</code> &mdash; v2-Hy3 baseline<br/>
+            &nbsp;&nbsp;<code>regime_attrib.json</code> &middot; <code>physical_rmse_trend.json</code><br/>
+            <code>runs/S{1,2}..._gammakin_grnd80_slip02/</code><br/>
+            &nbsp;&nbsp;<code>regime_attrib_lam{0,1}.json</code><br/>
+            <code>runs/S{1,2}..._gammakin_grnd150_slip02/</code><br/>
+            &nbsp;&nbsp;<code>regime_attrib_lam{0,1}.json</code><br/>
+            &nbsp;&nbsp;<code>physical_rmse_trend_full_0to150.json</code><br/>
+            <code>runs/COSINE_DIAG_FINDINGS_40ep.md</code> &mdash; &gamma;&perp;&Delta;V orthogonality<br/>
+            <code>observer_v1_py/regime_split_attrib.py</code> &mdash; the attribution probe</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding &mdash; v1 &rarr; v2-Hy3 &rarr; &gamma;-kin</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+</body>
+</html>

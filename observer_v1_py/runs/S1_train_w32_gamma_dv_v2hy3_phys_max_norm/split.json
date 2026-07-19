@@ -1,0 +1,17 @@
+{
+"train": [
+"coupled_vomega_c001_mu_0.3_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c001_mu_0.5_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c001_mu_0.8_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c003_mu_0.3_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c003_mu_0.5_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c003_mu_0.8_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c004_mu_0.3_case1_lugre_adamov_chi_0.005.arrow"
+],
+"val": [],
+"test": [
+"coupled_vomega_c002_mu_0.3_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c002_mu_0.5_case1_lugre_adamov_chi_0.005.arrow",
+"coupled_vomega_c002_mu_0.8_case1_lugre_adamov_chi_0.005.arrow"
+]
+}

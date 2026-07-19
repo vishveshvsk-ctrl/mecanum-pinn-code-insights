@@ -1,0 +1,20 @@
+# =============================================================================
+# eval_multisine — held-out OOD-EXCITATION evaluation regime (NOT for training).
+#
+# The multisine chatter profiles (multisine_50percent_cap / _75percent_cap) are
+# EXCLUDED from the S1/S2 training folds (held-out chatter eval). This regime
+# selects them so a trained hy3 observer can be scored on an excitation family it
+# never saw. chi is fixed at 0.005 (the only chi the multisine sweep was run at),
+# all mu. No fold / no split — eval consumes every discovered file.
+#
+# Consumed by eval_hy3_endpoints.py --mode regime --regime .../eval_multisine.toml
+# =============================================================================
+
+[regime]
+name = "eval_multisine"
+description = "held-out OOD-excitation eval: multisine 50/75% cap, chi=0.005, all mu"
+
+[data]
+mu = [0.3, 0.5, 0.8]
+chi = [0.005]
+include_profiles = ["multisine_50percent_cap", "multisine_75percent_cap"]

@@ -6,7 +6,7 @@ Hard rules and quick reference for agents working on this repository. For full t
 
 ## 1. Project overview
 
-PINN digital twin of a KUKA youBot four-Mecanum-wheel platform, targeting an **IMECE 2026** paper. Julia 39-D stiff ODE simulator → Arrow files (+ JLD2 sidecars) → PyTorch PINN. The PINN learns forward dynamics and recovers friction parameters (`μ`, `χ`).
+PINN digital twin of a KUKA youBot four-Mecanum-wheel platform. Julia 39-D stiff ODE simulator → Arrow files (+ JLD2 sidecars) → PyTorch PINN. The PINN learns forward dynamics and recovers friction parameters (`μ`, `χ`).
 
 ---
 
@@ -29,6 +29,7 @@ PINN digital twin of a KUKA youBot four-Mecanum-wheel platform, targeting an **I
 | `datastore.jl` | Labels, DataFrame, Arrow I/O, filename scheme |
 | `Data_Generation_Julia.jl` | Parallel sweep driver |
 | `diagnostics_combined.csv` | Training whitelist |
+| `Mecanum_SlipSpinLuGre_ASMC_DOB_full_supertwist_v4.ipynb` | the notebook for dynamics model used in data generation
 
 ---
 

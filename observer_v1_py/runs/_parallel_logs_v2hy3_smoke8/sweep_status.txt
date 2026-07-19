@@ -1,0 +1,2 @@
+[sweep] 3 min | done 2 failed 0 running 0 queued 0 / 2 to run
+done:   S2_hy3smoke_w32_gamma_dv_v2hy3_phys_max_norm_smoke8, S1_hy3smoke_w32_gamma_dv_v2hy3_phys_max_norm_smoke8

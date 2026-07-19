@@ -1,0 +1,2 @@
+[sweep] 250 min | done 2 failed 0 running 0 queued 0 / 2 to run
+done:   S1_train_hy3_w32_gamma_dv_v2hy3_gammakin_grnd150_slip02, S2_train_hy3_w32_gamma_dv_v2hy3_gammakin_grnd150_slip02

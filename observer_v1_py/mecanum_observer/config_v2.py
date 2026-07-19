@@ -13,6 +13,7 @@
 # =============================================================================
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple
@@ -167,7 +168,22 @@ class ObserverConfigV2:
 
     @property
     def phase_plan(self) -> List[Tuple[str, int]]:
-        """Return the effective (phase, epochs) list."""
+        """Return the effective (phase, epochs) list.
+
+        Smoke-test hook: OBS_PHASE_PLAN="2,1,2,1,2" overrides the per-phase
+        epoch counts (mapped in order onto the 5 phase names), keeping all
+        phases represented in a short run.  Env-var so it survives the
+        subprocess fan-out in parallel_sweep.  Unset => production schedule.
+        """
+        override = os.environ.get("OBS_PHASE_PLAN", "").strip()
+        if override:
+            ns = [int(x) for x in override.split(",") if x.strip()]
+            names = [name for name, _ in PHASE_SCHEDULE_V2]
+            if len(ns) != len(names):
+                raise ValueError(
+                    f"OBS_PHASE_PLAN needs {len(names)} counts "
+                    f"({','.join(names)}); got {len(ns)}")
+            return list(zip(names, ns))
         return list(PHASE_SCHEDULE_V2)
 
     @property

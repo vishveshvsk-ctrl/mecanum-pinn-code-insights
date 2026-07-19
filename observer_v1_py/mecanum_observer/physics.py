@@ -16,6 +16,11 @@
 # v2 note: observer_v1_py/mecanum_observer/losses_v2.py trains the roller
 # torque-balance term using label-sourced zx/zy while gamma is predicted by the
 # network.  In v1 the roller term is monitor-only (`phys_roller_w*_MON`).
+#
+# v2-Hy3 note: observer_v1_py/mecanum_observer/physics_v2hy3.py provides the
+# steady-state (bristle-free) Adamov force law, the kinematic stick γ, and the
+# regime-split roller residual used by the Hy3 physics loss.  No v1 function is
+# edited for Hy3.
 # =============================================================================
 from __future__ import annotations
 

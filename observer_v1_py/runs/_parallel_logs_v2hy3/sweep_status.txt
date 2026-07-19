@@ -1,0 +1,2 @@
+[sweep] 836 min | done 2 failed 0 running 0 queued 0 / 2 to run
+done:   S1_train_hy3_w32_gamma_dv_v2hy3_phys_max_norm, S2_train_hy3_w32_gamma_dv_v2hy3_phys_max_norm

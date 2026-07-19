@@ -87,7 +87,47 @@ memory.
    features AND measured wrench combos — one physical sensor ⇒ ONE corruption
    realization per trajectory shared by both paths, never independent draws.
    Sensor-real applies to model INPUTS only; ground-truth kinematics stay legal on
-   the loss side. Yaw angle is needed nowhere (body-frame formulation).
+   the loss side. Yaw angle is needed nowhere (body-frame formulation). The fixed
+   filter is the v2 BASELINE front-end; decision 11 records the planned PINN
+   velocity-observer successor behind the same V̂ interface.
+10. **Condition-adaptive forward estimation — fault correction MANIFESTS in the
+    forward law (indirect adaptation; detection alone is not the deliverable).**
+    Three feedback paths by fault locus:
+    (a) **Contact-law faults** (wear → μ_i, stiction ratio, χ): conditioning promoted
+    from scalar μ to a PER-WHEEL condition vector θ_c,i = (μ_i, stiction_ratio_i, …).
+    Valid without retraining because the architecture is wheel-factorized (shared
+    weights, per-wheel inputs; cross-wheel coupling only via measured body states):
+    mixed per-wheel μ is pointwise evaluation of the trained per-wheel map, not
+    extrapolation. Updated μ̂_i coherently shifts friction circle, breakaway cap
+    (μ_s,i = 1.1·μ_i), gate proximity ρ, and slip-head scale — structurally.
+    (b) **Measurement-map faults** (p1_i, actuator gain_i, Jw, IMU calibration):
+    estimated and updated IN THE EQUATIONS (`wrench.measured_combos`, load-balance
+    features) — an un-updated p1 biases the "measured" drive force; no network
+    adaptation can fix a lying measurement equation.
+    (c) **Unparameterized drift**: the reserved per-wheel embedding (4-dim, frozen
+    hook) unfrozen for the implicated wheel ONLY, fit on the measured-combo loss
+    under trust-region + sim rehearsal — the bounded escalation tier.
+    **Detector–estimator handshake:** CUSUM/GLR detectors on per-wheel residuals
+    CONTROL the recursive estimators — long forgetting factor while nominal,
+    covariance reset on detection, regime-gated updates (slip → μ_i; low-slip →
+    p1/p2; spin → χ). Fusion innovation corrects FILTER mode per step; θ_c is what
+    corrects TWIN/ROLLOUT mode (F_blend), where no measurements exist.
+    **Validation = sim fault-injection campaign** (per-wheel μ perturbation e.g.
+    wheel 1 at 0.35 vs 0.5, p2 increase, roller-radius perturbation; new combo IDs —
+    immutability respected; small run_one.jl extension for per-wheel μ). Headline
+    metric: forward/rollout force error BEFORE vs AFTER correction; explicit test of
+    the factorization claim (uniform-μ-trained model under mixed per-wheel μ) — if
+    it fails, add a small mixed-μ training set.
+    **Implementation hook now:** the v2 model accepts μ as `[B]` or `[B,4]`
+    (broadcast), so the conditioning interface never breaks when adaptation lands.
+11. **Estimated-input interface (PINN observers feed the forward net).** The forward
+    consumes ESTIMATES, never privileged states: γ̂ from Observer v2 (pinned,
+    decision + rev-2 brief), and V̂ from the velocity front-end. v2 campaigns use the
+    fixed complementary filter (decision 9, drift-audited); a **PINN-based velocity
+    observer is the planned successor**, dropping in behind the SAME V̂ interface —
+    the swap changes the input error statistics, not the contract. On swap: re-run
+    the sensor-real ablation and re-check the drift-audit acceptance with the new
+    estimator's error profile.
 
 ---
 

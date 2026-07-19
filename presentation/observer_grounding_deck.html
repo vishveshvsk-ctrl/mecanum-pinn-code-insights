@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8"/>
+<title>Observer Grounding Results — Academic Navy Slide Deck</title>
+<!-- ===================== Academic Navy theme ===================== -->
+<style>
+:root{
+  --navy:#10243E; --navy2:#1B3A5B; --steel:#3E6691; --steell:#7E9BBE;
+  --gold:#B07D2B; --goldl:#D8AE5C; --ink:#1C2530; --light:#EEF2F7;
+  --paper:#FFFFFF; --grid:#C9D3DF; --red:#9B2D30; --green:#2E6B4F;
+  --serif:"Palatino Linotype","Book Antiqua",Georgia,serif;
+  --sans:"Segoe UI",system-ui,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--paper);}
+body{font-family:var(--serif);color:var(--ink);counter-reset:slide;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.slide{
+  position:relative;width:1280px;height:720px;background:var(--paper);
+  margin:18px auto;overflow:hidden;display:flex;flex-direction:column;
+  counter-increment:slide;box-shadow:0 4px 18px rgba(0,0,0,.35);
+}
+.hdr{
+  height:60px;background:var(--navy);color:#fff;display:flex;align-items:center;
+  justify-content:space-between;padding:0 30px;flex:0 0 auto;
+}
+.hdr .sec{
+  font-family:var(--sans);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--goldl);
+}
+.hdr .sec b{color:#fff;font-weight:600;}
+.hdr .brand{
+  display:flex;align-items:center;gap:10px;
+}
+.hdr .brand img{
+  height:38px;background:#fff;border-radius:5px;padding:2px 4px;
+}
+.hdr .brand .txt{
+  font-family:var(--sans);font-size:11px;line-height:1.15;text-align:right;color:#dfe7f1;
+}
+.hdr .brand .txt b{
+  display:block;color:#fff;font-size:12px;letter-spacing:.02em;
+}
+.body{
+  flex:1 1 auto;padding:20px 34px 8px 34px;overflow:hidden;display:flex;flex-direction:column;min-height:0;
+}
+.body h1{
+  font-size:27px;color:var(--navy);font-weight:600;line-height:1.12;margin-bottom:2px;
+}
+.body h1 .accent{color:var(--gold);}
+.subttl{
+  font-family:var(--sans);font-size:13.5px;color:var(--steel);margin-bottom:10px;
+}
+.rule{
+  height:3px;width:100%;background:linear-gradient(90deg,var(--gold) 0 64px,var(--grid) 64px 100%);
+  margin:6px 0 12px;
+}
+.ftr{
+  height:30px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:0 30px;font-family:var(--sans);font-size:10.5px;color:#6a7686;border-top:1px solid var(--grid);
+}
+.ftr .pg::after{content:counter(slide);}
+.ftr .vn{color:var(--navy);font-weight:600;}
+.panel{
+  background:var(--light);border-left:4px solid var(--steel);border-radius:4px;padding:10px 14px;margin:8px 0;
+}
+.panel.gold{border-left-color:var(--gold);}
+.panel.red{border-left-color:var(--red);}
+.panel.green{border-left-color:var(--green);}
+.panel h3{
+  font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);
+  margin-bottom:4px;
+}
+.fph{
+  border:2px dashed var(--goldl);background:repeating-linear-gradient(45deg,#fbf7ef,#fbf7ef 12px,#f5eede 12px,#f5eede 24px);
+  border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;color:var(--gold);padding:12px;min-height:120px;height:100%;
+}
+.fph .lab{
+  font-family:var(--sans);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#b9933f;margin-bottom:6px;
+}
+.fph .desc{
+  font-family:var(--serif);font-size:14px;color:var(--navy);line-height:1.3;max-width:92%;
+}
+.fph .fn{
+  font-family:var(--sans);font-size:11px;color:#9a9485;margin-top:8px;
+}
+.fph .ic{
+  font-size:26px;color:var(--goldl);margin-bottom:4px;
+}
+</style>
+<!-- ===================== MathJax (local, tex->svg, self-contained) ===================== -->
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)'],['$','$']],displayMath:[['$$','$$'],['\\[','\\]']]},
+  svg:{fontCache:'global'},
+  startup:{ready:()=>{MathJax.startup.defaultReady();
+    MathJax.startup.promise.then(()=>{document.body.classList.add('mj-done');});}}
+};
+</script>
+<script src="assets/tex-svg.js" id="MathJax-script" async></script>
+</head>
+<body>
+<!-- ============================= 1. TITLE ============================= -->
+<section class="slide title">
+  <div class="tbar"></div>
+  <div class="twrap">
+    <div class="toprow"><img src="assets/vnit_logo.jpeg" alt="VNIT"/><div class="inst"><b>VNIT Nagpur</b>Mech. Engg.</div></div>
+    <h1>Observer Grounding Results</h1>
+    <div class="sub">Academic Navy Slide Deck — VNIT</div>
+    <div class="meta"><div><span class="ph">Your Name</span> &nbsp;·&nbsp; Research Scholar<br/><span style="color:#8fa3ba">Guide: Prof. ...</span></div><div style="text-align:right"><span class="conf">IMECE 2026</span><br/><span style="color:#8fa3ba">VNIT Nagpur</span></div></div>
+  </div>
+</section>
+
+<!-- ============================= 2. OVERVIEW ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Overview</b></div></div>
+  <div class="body">
+    <h1>Overview</h1><div class="rule"></div>
+    <div class="toc">
+      <div class="item"><div class="num">I</div><div><div class="t">Evolution of Observer Design</div></div></div>
+      <div class="item"><div class="num">II</div><div><div class="t">Grounding Results</div></div></div>
+      <div class="item"><div class="num">III</div><div><div class="t">Key Insights</div></div></div>
+      <div class="item"><div class="num">IV</div><div><div class="t">Status & Evidence</div></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= 3. EVOLUTION – V1 ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Evolution</b></div></div>
+  <div class="body">
+    <h1>v1 — Supervised State Observer</h1><div class="rule"></div>
+    <p><b>Inputs:</b> [Vx, Vy, ψ̇] + per‑wheel [Msat, w, sinθ, cosθ].</p>
+    <p><b>Targets:</b> [γ, zx, zy] – LuGre bristle states.</p>
+    <p><b>Encoder:</b> shared MambaLite SSM (wheel‑batched).</p>
+    <p><b>Intent:</b> learn full friction internal state.</p>
+    <p><b>Problem:</b> bristle states unobservable; reliance on near‑true Vx, Vy.</p>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= 4. EVOLUTION – V2‑HY3 ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Evolution</b></div></div>
+  <div class="body">
+    <h1>v2‑Hy3 — Slip Baseline</h1><div class="rule"></div>
+    <p><b>Front‑end:</b> sensor‑real complementary filter → [V̂x, V̂y, ψ̇_gyro, a_x, a_y].</p>
+    <p><b>Change:</b> dropped bristle states; added ΔV head for body‑velocity correction.</p>
+    <p><b>Physics loss:</b> regime‑split gate blends stick residual & slip residual.</p>
+    <p><b>Intent:</b> deployable observer grounded in measurable quantities.</p>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= 5. EVOLUTION – GAMMA‑KIN ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Evolution</b></div></div>
+  <div class="body">
+    <h1>Gamma‑Kin — Residual Parametrization</h1><div class="rule"></div>
+    <p>γ as residual off analytic no‑slip base:<br/>
+      γ̂ = γ_noslip + Δγ̂·dgamma_scale.</p>
+    <p>Uniform dv_scale replaces per‑axis scaling.</p>
+    <p>Gamma_high_slip_upweight restored importance of high‑slip tail.</p>
+    <p>Two latent bugs fixed (double‑count, double‑denorm).</p>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= 6. RESULTS – TABLE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Results</b></div></div>
+  <div class="body">
+    <h1>Grounding Results</h1><div class="rule"></div>
+    <table>
+      <thead><tr><th>Version</th><th>γ all</th><th>γ stick</th><th>dVx R²</th><th>|Vp| err</th><th>stick_frac</th></tr></thead>
+      <tbody>
+        <tr><td><b>v1</b> (TRUE inputs)</td><td class="g">3.9–5.2 rad/s</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td><b>v2‑Hy3 baseline</b></td><td>4.20–5.45</td><td>5.43–5.06</td><td>−0.32</td><td>6.47–6.51 cm/s</td><td>0.034–0.076</td></tr>
+        <tr><td><b>γ‑kin λ=0</b> (deployable)</td><td>0.98–1.26</td><td>0.62–0.91</td><td>0.93–0.96</td><td>1.21–1.54</td><td>0.125–0.204</td></tr>
+        <tr><td><b>γ‑kin λ=1</b> (label‑assisted)</td><td>0.72–0.88</td><td>0.34–0.47</td><td>0.93–0.96</td><td>1.09–1.41</td><td>0.125–0.179</td></tr>
+      </tbody>
+    </table>
+    <p><b>γ</b> in rad/s; λ=0 deployable, λ=1 label‑assisted.</p>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= 7. IMPROVEMENTS – GATE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Improvements</b></div></div>
+  <div class="body">
+    <h1>Gate Performance</h1><div class="rule"></div>
+    <ul>
+      <li><b>Stick fraction:</b> 0.07–0.08 → <span class="g">0.18–0.20</span> (↑ acceptance).</li>
+      <li><b>|Vp| error:</b> 6.5 cm/s → <span class="g">≈1.2 cm/s</span> (gate width ≈1 cm/s).</li>
+      <li><b>γ improvement:</b> 4–7× better; residual isolates slip.</li>
+      <li><b>ΔV_x repair:</b> R² from −0.32 → 0.90–0.96.</li>
+    </ul>
+    <p class="tiny">Gains stem from γ residual parametrization & uniform dv_scale.</p>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= 8. STATUS & EVIDENCE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Status</b></div></div>
+  <div class="body">
+    <h1>Current Status</h1><div class="rule"></div>
+    <p>The deployable <b>λ‑phase‑out</b> fork (ep80) freezes ΔV head and ramps λ from 1→0,
+      allowing the γ head to re‑fit to the deployable base without chasing a moving target.
+      Results pending; early tests show the ~1 cm/s ΔV error remains stable.</p>
+    <div class="panel green"><h3>Evidence Index</h3>
+      <div class="stategrid tiny">
+        <div><span class="idx">runs/S1_…_gammakin_grnd80_slip02/</span> regime_attrib_lam0.json</div>
+        <div><span class="idx">runs/S1_…_gammakin_grnd150_slip02/</span> physical_rmse_trend_full_0to150.json</div>
+        <div><span class="idx">observer_v1_py/</span> OBSERVER_GROUNDING_EVOLUTION.md</div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+<!-- ============================= FIGURE PLACEHOLDER (optional) ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">Figures</div></div>
+  <div class="body">
+    <div class="fph">
+      <div class="lab">fig1</div>
+      <div class="desc">Insert figure placeholder here (e.g., γ trend over epochs).</div>
+      <div class="fn">fig_γ_trend.png</div>
+      <div class="ic">☐</div>
+    </div>
+  </div>
+  <div class="ftr"><span>Observer Grounding Results</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;·&nbsp;</span></div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,33 @@
+# =============================================================================
+# S1_train_hy3 — Observer v2-Hy3 cross-fold TRAIN regime (physics ON).
+# Excitation-coverage 2-fold, direction 1: train on S1, cross-test on S2.
+# Same fold construction as S1_train.toml, but physics_loss = true so the hy3
+# regime-split physics path (losses_v2hy3 / physics_v2hy3) is trained across the
+# 5-phase curriculum. Run S2_train_hy3.toml for the reverse direction.
+# =============================================================================
+
+[regime]
+name = "S1_train_hy3"
+description = "hy3 train on excitation-fold S1, cross-test on S2, physics on"
+
+[data]
+mu = [0.3, 0.5, 0.8]
+chi = [0.005]
+exclude_profiles = ["multisine_50percent_cap", "multisine_75percent_cap"]
+
+[split]
+val_frac = 0.1
+
+[fold]
+train_fold = "S1"
+backbone = ["octagon", "spin_creep", "coupled_vomega"]
+redundant_S1 = ["long_circle", "spiral_orbit"]
+redundant_S2 = ["ellipse"]
+profiles_toml_dir = "trajectory_files_run_0p5_main/profiles"
+redundant_sample_frac = 0.25
+redundant_sample_profiles = ["long_circle", "spiral_orbit"]
+
+[train]
+window = 32
+phases = "a1_5phase"
+physics_loss = true
