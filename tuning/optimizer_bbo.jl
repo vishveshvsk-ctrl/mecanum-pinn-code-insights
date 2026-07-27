@@ -5,6 +5,7 @@
 module TuningBBOMod
 
 using Random
+using JSON
 
 using Main.TuningParamSpaceMod: ParamSpace, n_params
 
@@ -42,7 +43,10 @@ loaded lazily (only inside the branch that needs them), so this file is
 include-able with neither installed.
 """
 function run_backend(kind::Symbol, theta_objective::Function, space;
-                     budget::Int, nthreads::Int=1, seed::Int=42)
+                     budget::Int, nthreads::Int=1, seed::Int=42,
+                     trace_path::AbstractString="",
+                     x0::Union{AbstractVector{<:Real},Nothing}=nothing,
+                     x0_halfwidth::Real=0.25)
     kind in (:dxnes, :de, :bo) ||
         error("run_backend: unknown backend :$kind (expected :dxnes, :de or :bo)")
     budget >= 1 || error("run_backend: budget must be >= 1, got $budget")
@@ -55,6 +59,22 @@ function run_backend(kind::Symbol, theta_objective::Function, space;
     vary    = findall(i -> space.flat_upper[i] > space.flat_lower[i], 1:n_params(space))
     lower_v = space.flat_lower[vary]
     upper_v = space.flat_upper[vary]
+
+    # Warm start: narrow the search box to ±x0_halfwidth of the original width
+    # around the incumbent (clamped to the original bounds).  :bo also seeds
+    # its DOE with the incumbent.  Intended for local surrogate refinement
+    # after a global search plateaus.
+    x0_sub = nothing
+    if x0 !== nothing
+        length(x0) == n_params(space) ||
+            error("run_backend: x0 length $(length(x0)) != $(n_params(space))")
+        x0_sub = Float64.(x0[vary])
+        hw = x0_halfwidth .* (upper_v .- lower_v)
+        lower_v = max.(lower_v, x0_sub .- hw)
+        upper_v = min.(upper_v, x0_sub .+ hw)
+        kind != :bo &&
+            @warn "run_backend: x0 warm start is only used by :bo; narrowing the box anyway"
+    end
     function expand(theta_sub)
         full = copy(space.flat_lower)
         full[vary] .= theta_sub
@@ -66,10 +86,29 @@ function run_backend(kind::Symbol, theta_objective::Function, space;
     history    = NamedTuple[]
     hist_lock  = ReentrantLock()
     eval_count = Ref(0)
+    best_ref   = Ref(Inf)
+
+    # Live convergence trace: one CSV row per evaluation (flushed each write)
+    # so progress can be monitored while a long run is in flight.
+    trace_io = isempty(trace_path) ? nothing : open(trace_path, "w")
+    trace_io !== nothing && println(trace_io, "iteration,score,best_so_far")
+
+    # Crash-proof checkpoints (JSON, atomic via write+rename): the incumbent
+    # theta survives a kill/Ctrl-C — only scores lived in the trace before.
+    ckpt_dir = isempty(trace_path) ? "" : dirname(trace_path)
+    function _write_ckpt(fname, iteration, score, theta_vec)
+        isempty(ckpt_dir) && return
+        tmp = joinpath(ckpt_dir, fname * ".tmp")
+        open(tmp, "w") do io
+            JSON.print(io, Dict("iteration" => iteration, "score" => score,
+                                "theta" => theta_vec))
+        end
+        mv(tmp, joinpath(ckpt_dir, fname); force=true)
+    end
 
     function fitness(theta)
         local metrics
-        theta_sub = Vector{Float64}(theta)  # BBO gives Vector, Surrogates gives Tuple
+        theta_sub = Float64.(collect(theta))  # BBO gives Vector, Surrogates gives NTuple
         theta_vec = expand(theta_sub)
         try
             metrics = theta_objective(theta_vec)
@@ -77,20 +116,31 @@ function run_backend(kind::Symbol, theta_objective::Function, space;
             @error "run_backend: objective threw for theta $theta_vec" exception=(e, catch_backtrace())
             return PENALTY
         end
+        s = Float64(metrics.score)
+        s = isfinite(s) ? min(s, PENALTY) : PENALTY
         lock(hist_lock) do
             eval_count[] += 1
+            improved = s < best_ref[]
+            best_ref[] = min(best_ref[], s)
             push!(history, merge((iteration=eval_count[], theta=theta_vec), metrics))
+            if trace_io !== nothing
+                println(trace_io, "$(eval_count[]),$s,$(best_ref[])")
+                flush(trace_io)
+            end
+            _write_ckpt("checkpoint_latest.json", eval_count[], s, theta_vec)
+            improved && _write_ckpt("checkpoint_best.json", eval_count[], s, theta_vec)
         end
-        s = Float64(metrics.score)
-        return isfinite(s) ? min(s, PENALTY) : PENALTY
+        return s
     end
 
     (best_sub, best_score) = if kind == :bo
-        _run_surrogates(fitness, lower_v, upper_v, history; budget=budget, seed=seed)
+        _run_surrogates(fitness, lower_v, upper_v, history; budget=budget, seed=seed,
+                        x0=x0_sub)
     else
         _run_blackboxoptim(kind, fitness, lower_v, upper_v, history;
                            budget=budget, nthreads=nthreads, seed=seed)
     end
+    trace_io !== nothing && close(trace_io)
     return (expand(best_sub), best_score, history)
 end
 
@@ -163,19 +213,21 @@ function _run_blackboxoptim(kind::Symbol, fitness::Function,
 end
 
 """
-    _run_surrogates(fitness, lower, upper, history; budget, seed)
+    _run_surrogates(fitness, lower, upper, history; budget, seed, x0)
 
 Surrogates.jl Bayesian optimization: Kriging surrogate + `surrogate_optimize!`
 with the DYCORS strategy (SRBF fallback), initial Sobol DOE of
 `min(20, div(budget, 3))` points, `maxiters` set so total evals ≈ `budget`.
 Searches the `lower`/`upper` box (varying dims only — see `run_backend`).
-Serial — no lock needed on the history wrapper here.  Returns
-`(best_theta_sub, best_score)`.
+When `x0` (incumbent, sub-space) is given, it replaces the first DOE point so
+the surrogate starts fitted around the warm start.  Serial — no lock needed
+on the history wrapper here.  Returns `(best_theta_sub, best_score)`.
 """
 function _run_surrogates(fitness::Function,
                          lower::Vector{Float64}, upper::Vector{Float64},
                          history;
-                         budget::Int, seed::Int)
+                         budget::Int, seed::Int,
+                         x0::Union{Vector{Float64},Nothing}=nothing)
     # Optional heavy dependency: loaded on demand (see _run_blackboxoptim).
     local S
     try
@@ -198,6 +250,10 @@ function _run_surrogates(fitness::Function,
     # this function) — run the Surrogates calls in a closure via invokelatest.
     body = function ()
         xys  = S.sample(n_init, lb, ub, S.SobolSample())
+        if x0 !== nothing
+            # Incumbent first: surrogate is anchored at the warm start.
+            xys[1] = Tuple(x0)
+        end
         zs   = [fitness(xy) for xy in xys]
         krig = S.Kriging(xys, zs, lb, ub)
 

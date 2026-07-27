@@ -91,6 +91,35 @@ class ObserverConfigV2Hy3GammaKin(ObserverConfigV2Hy3):
     # less (dgamma really is larger in slip), so default it off.
     gamma_high_slip_upweight: float = 1.0
 
+    # --- slip-loss shape (log-domain redesign) ------------------------------
+    # "mse": linear normalized MSE, mean((|Vp|-vpm)^2)/vpm_scale^2  (REPRODUCES
+    #        _noslip/_slip02/_wslip1 exactly; leave as the default).
+    # "log": half-square log-ratio, mean((0.5*log((|Vp|^2+e^2)/(vpm^2+e^2)))^2).
+    # Motivation: under a constant-relative-error model the LINEAR form spends
+    # 73.5% of its gradient on the >p99 tail (1.0% of samples) and 0.0% on the
+    # stick band -- the population the gate actually decides. The log form cuts
+    # the tail to ~1.5% and moves 23% into the gate band. It is a REDISTRIBUTION,
+    # not a rescale: a p50-vs-p95 normalizer change cannot do this.
+    slip_loss_kind: str = "mse"
+    # eps is NOT a numerical guard -- it is the turnover scale of the implied
+    # per-sample weight w(v) = (v^2/(v^2+e^2))^2, which peaks at v = e/sqrt(3).
+    # Set to the GATE WIDTH. Larger eps (0.0173 to put the peak exactly at the
+    # gate, or the vpm p50) monotonically drains gate-band gradient share
+    # (23.0% -> 13.3% -> 7.3%); peak LOCATION is not the figure of merit, band
+    # SHARE is. Do not go below 0.005: worst-case gradient scales as 1/eps and
+    # the loss starts fitting unidentifiable near-zero noise (vpm has exact 0s).
+    slip_log_eps: float = 0.01
+
+    # Use the component-consistent vpm label from the `.vpcomp.npz` sidecars
+    # (observer_v1_py/build_vp_components.py) instead of the cached vpm.
+    # The cache stores decimate(hypot(Vpx,Vpy)); hypot is convex, so by Jensen
+    # that is biased HIGH vs hypot(decimate(Vpx),decimate(Vpy)) -- which is what
+    # the model path produces. Measured over the full test splits: stick_frac
+    # +10.5% (S1) / +7.7% (S2) relative, all crossings one-directional, p95/p99
+    # unchanged (<0.25%, so vpm_scale needs no revision). Negligible for "mse"
+    # (0.0% of its gradient sits where the bias lives) but MATERIAL for "log".
+    use_vp_components: bool = False
+
     # --- gamma-only fine-tune of the label phase-out ------------------------
     # Warm-start the FULL model from a trained gammakin checkpoint, then (with
     # freeze_encoder_dv) freeze encoder + feat + wheel_emb + head_dv and train ONLY
@@ -113,6 +142,11 @@ class ObserverConfigV2Hy3GammaKin(ObserverConfigV2Hy3):
                       ("vy_label_end", self.vy_label_end)):
             if not (0.0 <= v <= 1.0):
                 raise ValueError(f"{nm} must be in [0,1]; got {v}")
+        if self.slip_loss_kind not in ("mse", "log"):
+            raise ValueError(f"slip_loss_kind must be 'mse' or 'log'; "
+                             f"got {self.slip_loss_kind!r}")
+        if self.slip_log_eps <= 0.0:
+            raise ValueError("slip_log_eps must be positive")
         return self
 
     @property

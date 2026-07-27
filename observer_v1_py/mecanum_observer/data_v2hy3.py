@@ -142,6 +142,42 @@ def _hy3_cache_key(cfg: ObserverConfigV2Hy3) -> str:
     return f"hy3in.xo{xo}_{cfg.vel_filter_integrator}_noise-{cfg.noise_stage}_hz{hz}"
 
 
+def _apply_vp_components(a: Optional[Dict[str, np.ndarray]], path: Path,
+                         cfg: ObserverConfigV2Hy3) -> Optional[Dict[str, np.ndarray]]:
+    """Replace the cached vpm with the component-consistent label, if enabled.
+
+    The cache stores vpm = decimate(hypot(Vpx,Vpy)) -- magnitude formed at 2 kHz,
+    THEN anti-alias filtered. hypot is convex, so by Jensen that is biased HIGH
+    vs hypot(decimate(Vpx),decimate(Vpy)), which is what the model path builds
+    (from already-decimated Vpx0_hat/Vpy0_hat). The bias is concentrated at small
+    |Vp| -- i.e. at the gate.
+
+    Applied AFTER the cache read on purpose: the `.hy3in.*.npz` cache is left
+    byte-identical, so the same warm cache serves use_vp_components True and
+    False and the _noslip/_slip02/_wslip1 baselines stay reproducible.
+
+    Missing sidecar is FATAL rather than a silent fallback -- a half-relabelled
+    epoch would be an invisible confound. Build with
+    `python observer_v1_py/build_vp_components.py`.
+    """
+    if a is None or not getattr(cfg, "use_vp_components", False):
+        return a
+    sc = Path(getattr(cfg, "cache_dir", "") or ".") / f"{Path(path).name}.vpcomp.npz"
+    if not sc.exists():
+        raise FileNotFoundError(
+            f"use_vp_components=True but sidecar missing: {sc}\n"
+            f"Build it with: python observer_v1_py/build_vp_components.py")
+    with np.load(sc) as z:
+        vx = z["Vpx_true"].astype(np.float64)
+        vy = z["Vpy_true"].astype(np.float64)
+    vpm = np.hypot(vx, vy)
+    if vpm.shape != a["vpm"].shape:
+        raise ValueError(f"vpcomp shape {vpm.shape} != cached vpm "
+                         f"{a['vpm'].shape} for {path.name}")
+    a["vpm"] = vpm.astype(a["vpm"].dtype)
+    return a
+
+
 def read_arrays_hy3(path: Path, cfg: ObserverConfigV2Hy3
                     ) -> Optional[Dict[str, np.ndarray]]:
     """Decimated hy3 front-end arrays, memoised as float32 `.hy3in.<key>.npz`
@@ -151,7 +187,7 @@ def read_arrays_hy3(path: Path, cfg: ObserverConfigV2Hy3
     the computed arrays uncached rather than crashing training."""
     cache_dir = getattr(cfg, "cache_dir", "") or ""
     if not cache_dir:
-        return _build_arrays_hy3(path, cfg)
+        return _apply_vp_components(_build_arrays_hy3(path, cfg), path, cfg)
 
     cp = Path(cache_dir) / f"{Path(path).name}.{_hy3_cache_key(cfg)}.npz"
     if cp.exists():
@@ -160,7 +196,9 @@ def read_arrays_hy3(path: Path, cfg: ObserverConfigV2Hy3
             a = {k: d[k] for k in d.files}
             a["mu"] = float(a["mu"])
             a["chi"] = float(a["chi"])
-            return a
+            return _apply_vp_components(a, path, cfg)
+        except FileNotFoundError:
+            raise                                           # missing sidecar -> fatal
         except Exception:
             pass                                            # corrupt/partial -> rebuild
 
@@ -181,7 +219,7 @@ def read_arrays_hy3(path: Path, cfg: ObserverConfigV2Hy3
                 tmp.unlink()
             except Exception:
                 pass
-    return a
+    return _apply_vp_components(a, path, cfg)
 
 
 def warm_hy3_cache(files: List[Path], cfg: ObserverConfigV2Hy3) -> int:

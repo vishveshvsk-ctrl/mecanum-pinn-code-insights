@@ -1,0 +1,8 @@
+{
+  "pose_drift": 0.0,
+  "score": 58.0508564955152,
+  "smoothness": 0.3911784152723576,
+  "inslip_nrmse": 37.67788549306339,
+  "trajectory": "long_circle",
+  "overall_nrmse": 20.333853160924573
+}

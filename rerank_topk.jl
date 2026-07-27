@@ -107,7 +107,9 @@ function load_subset(manifest_path::String)
          ref_type=Symbol(e["ref_type"]),
          mu=Float64(e["mu"]),
          config_dir=e["config_dir"],
-         run_mode=Symbol(e["run_mode"]))
+         run_mode=Symbol(e["run_mode"]),
+         combo_idx=get(e, "combo_idx", nothing),
+         pose_fix_tier=get(e, "pose_fix_tier", nothing) === nothing ? nothing : Symbol(e["pose_fix_tier"]))
         for e in data["entries"]
     ]
     return TuningSubset(entries, data["hash"])
@@ -141,7 +143,7 @@ function make_objective(nominal_ctrl_cfg, seed::Int)
     return function (est_cfg, subset)
         logs = [run_and_log(est_cfg, entry, nominal_ctrl_cfg; seed=seed)
                 for entry in entries(subset)]
-        return estimator_objective(logs; λ_slip=2.0, λ_smooth=0.1, λ_pose=0.5)
+        return estimator_objective_abs(logs)
     end
 end
 
@@ -152,6 +154,7 @@ function main()
     space = est_sym == :kalman     ? kf_param_space() :
             est_sym == :smo        ? smo_param_space() :
             est_sym == :kalman_imm ? imm_kf_param_space() :
+            est_sym == :eskf       ? eskf_param_space() :
             error("Unknown estimator: $(args["estimator"])")
 
     subset = load_subset(args["manifest"])

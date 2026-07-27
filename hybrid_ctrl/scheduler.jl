@@ -36,7 +36,12 @@ function _make_sensor_callback(est, sm, p, cfg)
         p.bus.y_last = y
         p.bus.t_now[] = integrator.t
         dt = 1.0 / cfg.f_est
-        Main.EstimatorMod.estimator_update!(p.bus, y, est, p.params, dt)
+        if est isa Main.EstimatorMod.OracleEstimator
+            # Bootstrap feed: inject the true state (+ noise) directly as x̂.
+            Main.EstimatorMod.oracle_feed!(p.bus, u, est, dt)
+        else
+            Main.EstimatorMod.estimator_update!(p.bus, y, est, p.params, dt)
+        end
 
         # TODO(rewrite): lightweight per-tick probe log for the tuning harness.
         # Replace with structured logger once the upstream estimator rewrite lands.
@@ -47,6 +52,7 @@ function _make_sensor_callback(est, sm, p, cfg)
             t       = integrator.t,
             xhat    = p.bus.xhat,
             d_hat   = p.bus.d_hat,
+            v_cmd   = p.bus.v_cmd,       # per-tick ZOH voltage → true control effort
             u       = copy(integrator.u),
         ))
         return nothing
@@ -185,7 +191,10 @@ function run_hybrid(cfg::Main.HybridConfigMod.HybridConfig,
                     return_bus::Bool=false,
                     est=nothing,
                     ref=nothing,
-                    fix_override::Union{Main.EstimatorMod.PoseFixModel,Nothing}=nothing)
+                    fix_override::Union{Main.EstimatorMod.PoseFixModel,Nothing}=nothing,
+                    asmc_override=nothing,
+                    mpc_override=nothing,
+                    pid_override=nothing)
 
     if ref === nothing
         profile_file = profile_toml === nothing ? string(refname)*".toml" : string(profile_toml)
@@ -215,12 +224,13 @@ function run_hybrid(cfg::Main.HybridConfigMod.HybridConfig,
     if est === nothing
         est  = cfg.estimator == :kalman     ? Main.EstimatorMod.KalmanEstimator(rate_hz=cfg.f_est, use_dhat=cfg.use_dhat) :
                cfg.estimator == :kalman_imm ? Main.EstimatorMod.IMMKalmanEstimator(rate_hz=cfg.f_est, use_dhat=cfg.use_dhat) :
+               cfg.estimator == :eskf       ? Main.EstimatorMod.ESKFEstimator(rate_hz=cfg.f_est, use_dhat=cfg.use_dhat) :
                cfg.estimator == :smo        ? Main.EstimatorMod.SMOEstimator(rate_hz=cfg.f_est, use_dhat=cfg.use_dhat) :
                error("Unsupported estimator: $(cfg.estimator)")
     end
-    asmc = Main.ControllerMod.ASMCController(rate_hz=cfg.use_asmc ? cfg.f_est : 1000.0)
-    mpc  = Main.ControllerMod.MPCController(rate_hz=cfg.f_mpc)
-    pid  = Main.ControllerMod.PIDController()
+    asmc = asmc_override === nothing ? Main.ControllerMod.ASMCController(rate_hz=cfg.use_asmc ? cfg.f_est : 1000.0) : asmc_override
+    mpc  = mpc_override  === nothing ? Main.ControllerMod.MPCController(rate_hz=cfg.f_mpc) : mpc_override
+    pid  = pid_override  === nothing ? Main.ControllerMod.PIDController() : pid_override
     fz   = Main.FuzzyMod.FuzzySupervisor(rate_hz=cfg.f_fuzzy)
 
     # Pose-fix model for :pose + use_pose_fix
@@ -246,15 +256,24 @@ function run_hybrid(cfg::Main.HybridConfigMod.HybridConfig,
 
     cbs, prog = build_callbacks(cfg, est, sm, asmc, mpc, pid, fz, ref, plant_p, motor, T, fix)
 
-    solver = cfg.solver_symbol == :TRBDF2 ? TRBDF2() :
-             cfg.solver_symbol == :RadauIIA5 ? RadauIIA5() : TRBDF2()
+    solver = if cfg.solver_symbol == :FBDF
+        FBDF()
+    elseif cfg.solver_symbol == :TRBDF2
+        TRBDF2()
+    elseif cfg.solver_symbol == :RadauIIA5
+        RadauIIA5()
+    else
+        error("Unsupported solver_symbol: $(cfg.solver_symbol)")
+    end
+
+    abstol = cfg.abstol === nothing ? _build_abstol(motor, cfg.abstol_bristle) : cfg.abstol
 
     t_eval = collect(range(0.0, T; length=round(Int, T * cfg.saveat_hz) + 1))
     prob = ODEProblem(Main.PlantMod.plant_rhs!, u0, (0.0, T), plant_p)
     sol = solve(prob, solver;
-                reltol=cfg.reltol, abstol=_build_abstol(motor, cfg.abstol_bristle),
+                reltol=cfg.reltol, abstol=abstol,
                 saveat=t_eval, tstops=ref.tstops, callback=cbs,
-                dtmax=cfg.dtmax, maxiters=10^7)
+                dtmax=cfg.dtmax, maxiters=cfg.maxiters)
     finish!(prog)
 
     df = log_run(sol, plant_p, cfg, ref, motor)

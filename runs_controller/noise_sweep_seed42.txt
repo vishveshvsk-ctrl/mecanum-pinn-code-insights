@@ -1,0 +1,50 @@
+Noise sweep — seed 42, physical sensor-noise model, all values LOWER=better
+
+==================== octagon [velocity] ====================
+  asmc       clean : Vx=1.2   Vy=2.8  mm/s ωrms=3.2    ωmax=18.0  mrad/s ce=37.8
+  asmc       1x    : Vx=6.6   Vy=4.2  mm/s ωrms=8.1    ωmax=32.0  mrad/s ce=38.1
+  asmc       2x    : Vx=12.1  Vy=6.2  mm/s ωrms=12.4   ωmax=40.8  mrad/s ce=38.2
+  asmc       5x    : Vx=33.6  Vy=13.2 mm/s ωrms=26.9   ωmax=90.1  mrad/s ce=39.0
+
+  pid_cap80  clean : Vx=31.5  Vy=54.3 mm/s ωrms=4.0    ωmax=16.1  mrad/s ce=33.3
+  pid_cap80  1x    : Vx=32.8  Vy=55.1 mm/s ωrms=6.4    ωmax=28.9  mrad/s ce=33.7
+  pid_cap80  2x    : Vx=36.5  Vy=56.6 mm/s ωrms=8.8    ωmax=40.6  mrad/s ce=34.2
+  pid_cap80  5x    : Vx=52.8  Vy=62.1 mm/s ωrms=17.4   ωmax=65.9  mrad/s ce=35.3
+
+  pid_hi800  clean : Vx=9.8   Vy=21.4 mm/s ωrms=12.2   ωmax=78.0  mrad/s ce=37.5
+  pid_hi800  1x    : Vx=21.6  Vy=24.0 mm/s ωrms=25.9   ωmax=136.9 mrad/s ce=37.9
+  pid_hi800  2x    : Vx=33.1  Vy=29.5 mm/s ωrms=28.9   ωmax=161.1 mrad/s ce=38.7
+  pid_hi800  5x    : Vx=54.7  Vy=41.2 mm/s ωrms=36.5   ωmax=134.4 mrad/s ce=39.5
+
+==================== ellipse [pose] ====================
+  asmc       clean : posF=0.0   cm posMax=0.0   cm headMax=0.001 rad ce=27.2
+  asmc       1x    : posF=0.6   cm posMax=1.1   cm headMax=0.014 rad ce=27.3
+  asmc       2x    : posF=1.35  cm posMax=2.8   cm headMax=0.152 rad ce=27.9
+  asmc       5x    : posF=3.13  cm posMax=17.5  cm headMax=1.202 rad ce=25.8
+
+  pid_cap80  clean : posF=0.32  cm posMax=1.3   cm headMax=0.108 rad ce=27.3
+  pid_cap80  1x    : posF=20.06 cm posMax=43.9  cm headMax=1.17  rad ce=38.5
+  pid_cap80  2x    : posF=42.04 cm posMax=108.2 cm headMax=2.244 rad ce=46.4
+  pid_cap80  5x    : posF=106.21cm posMax=176.7 cm headMax=3.142 rad ce=48.0
+
+  pid_hi800  clean : posF=0.25  cm posMax=2.4   cm headMax=0.04  rad ce=29.4
+  pid_hi800  1x    : posF=7.88  cm posMax=21.4  cm headMax=0.417 rad ce=39.6
+  pid_hi800  2x    : posF=18.28 cm posMax=45.8  cm headMax=0.726 rad ce=39.4
+  pid_hi800  5x    : posF=105.19cm posMax=218.3 cm headMax=1.969 rad ce=52.3
+
+==================== spin_creep [velocity] ====================
+  asmc       clean : Vx=1.8   Vy=2.3  mm/s ωrms=5.4    ωmax=16.5  mrad/s ce=44.2
+  asmc       1x    : Vx=6.4   Vy=2.7  mm/s ωrms=9.2    ωmax=35.1  mrad/s ce=44.4
+  asmc       2x    : Vx=12.0  Vy=4.3  mm/s ωrms=13.1   ωmax=54.0  mrad/s ce=44.6
+  asmc       5x    : Vx=27.1  Vy=9.7  mm/s ωrms=33.1   ωmax=131.9 mrad/s ce=45.1
+
+  pid_cap80  clean : Vx=1.4   Vy=1.9  mm/s ωrms=422.3  ωmax=787.4 mrad/s ce=34.0
+  pid_cap80  1x    : Vx=7.8   Vy=5.3  mm/s ωrms=422.0  ωmax=791.3 mrad/s ce=34.2
+  pid_cap80  2x    : Vx=15.4  Vy=9.7  mm/s ωrms=423.0  ωmax=804.2 mrad/s ce=34.4
+  pid_cap80  5x    : Vx=36.1  Vy=21.9 mm/s ωrms=420.6  ωmax=844.2 mrad/s ce=35.3
+
+  pid_hi800  clean : Vx=4.9   Vy=11.0 mm/s ωrms=61.4   ωmax=153.9 mrad/s ce=43.9
+  pid_hi800  1x    : Vx=16.7  Vy=12.4 mm/s ωrms=65.6   ωmax=171.7 mrad/s ce=44.3
+  pid_hi800  2x    : Vx=26.3  Vy=17.7 mm/s ωrms=70.9   ωmax=220.1 mrad/s ce=44.9
+  pid_hi800  5x    : Vx=46.7  Vy=29.3 mm/s ωrms=86.8   ωmax=262.6 mrad/s ce=45.4
+

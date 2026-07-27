@@ -5,9 +5,11 @@ module ControllerMod
 
 using StaticArrays
 using LinearAlgebra
+using SparseArrays
+using OSQP
 
 export ASMCController, MPCController, PIDController,
-       asmc_wrench!, mpc_wrench!, pid_wrench!
+       asmc_wrench!, mpc_wrench!, pid_wrench!, pose_outer_loop
 
 # -----------------------------------------------------------------------------
 # ASMC controller (carried over; DOB removed, d_hat feedforward from SMO)
@@ -71,12 +73,13 @@ function asmc_wrench!(bus, xhat, ref, params, asmc::ASMCController, dt; mode::Sy
     d_hat = bus.d_hat
     I_psi = Is + 4*(l + h)^2 / R^2 * J1
 
+    t = bus.t_now[]
     if mode == :velocity
-        Vx_d, Vy_d = ref.Vx(bus.t_now[]), ref.Vy(bus.t_now[])
-        omega_d    = ref.Wz(bus.t_now[])
-        Ax_d, Ay_d = ref.Ax(bus.t_now[]), ref.Ay(bus.t_now[])
-        alpha_d    = ref.al(bus.t_now[])
-        dψ = psi - ref.psi(bus.t_now[])
+        Vx_d, Vy_d = ref.Vx(t), ref.Vy(t)
+        omega_d    = ref.Wz(t)
+        Ax_d, Ay_d = ref.Ax(t), ref.Ay(t)
+        alpha_d    = ref.al(t)
+        dψ = psi - ref.psi(t)
 
         s_x = Vx - Vx_d
         s_y = Vy - Vy_d
@@ -87,8 +90,42 @@ function asmc_wrench!(bus, xhat, ref, params, asmc::ASMCController, dt; mode::Sy
 
         Ax_eq, Ay_eq = Ax_d, Ay_d
         alpha_eq = alpha_d - lam_dot_psi * eψ - lam_psi * edψ * _edash_psi(dψ)
+
+    elseif mode == :pose
+        # Position-tracking degree-2 sliding surface, ported from run_one.jl:asmc_torques.
+        # Uses the ESTIMATED pose (X̂o,Ŷo,ψ̂); truth is not available to the controller.
+        ref::Main.Profiles.PosRef
+        e_xo = xhat[5] - ref.xo(t)
+        e_yo = xhat[6] - ref.yo(t)
+        cψ, sψ = cos(psi), sin(psi)
+        e_x  =  e_xo * cψ + e_yo * sψ
+        e_y  = -e_xo * sψ + e_yo * cψ
+        dψ   = psi - ref.psi(t)
+        eψ   = _e_psi(dψ)
+
+        Vx_d, Vy_d, omega_d = Main.Profiles.global_to_local_frame(t, psi, ref.Vxo, ref.Vyo, ref.om)
+
+        edot_x   = Vx - Vx_d + psi_dot * e_y
+        edot_y   = Vy - Vy_d - psi_dot * e_x
+        edot_psi = psi_dot - omega_d
+        edashψ   = _edash_psi(dψ)
+
+        lam_x,   lam_dot_x   = _get_dynamic_lambda(e_x,   edot_x,   asmc.lam_x_min,   asmc.lam_x_max,   asmc.mu_xy)
+        lam_y,   lam_dot_y   = _get_dynamic_lambda(e_y,   edot_y,   asmc.lam_y_min,   asmc.lam_y_max,   asmc.mu_xy)
+        lam_psi, lam_dot_psi = _get_dynamic_lambda(eψ,    edashψ * edot_psi,
+                                                    asmc.lam_psi_min, asmc.lam_psi_max, asmc.mu_psi)
+
+        s_x   = edot_x   + lam_x   * e_x
+        s_y   = edot_y   + lam_y   * e_y
+        s_psi = edot_psi + lam_psi * eψ
+
+        Ax_des, Ay_des, alpha_des = Main.Profiles.global_to_local_frame(t, psi, ref.Axo, ref.Ayo, ref.al)
+        alpha_eq = alpha_des - lam_dot_psi * eψ - lam_psi * edot_psi * edashψ
+        Ax_eq    = Ax_des - lam_dot_x * e_x - lam_x * edot_x + psi_dot * (Vy_d - edot_y) - alpha_eq * e_y
+        Ay_eq    = Ay_des - lam_dot_y * e_y - lam_y * edot_y - psi_dot * (Vx_d - edot_x) + alpha_eq * e_x
+
     else
-        error("asmc_wrench! :pose mode not implemented in this notebook")
+        error("asmc_wrench! mode must be :velocity or :pose; got $mode")
     end
 
     ss_x   = tanh(s_x   / asmc.eps)
@@ -142,17 +179,60 @@ Base.@kwdef mutable struct PIDController
     Ki::SVector{3,Float64} = SVector(1.0, 1.0, 0.5)
     Kd::SVector{3,Float64} = SVector(2.0, 2.0, 1.0)
     I_max::SVector{3,Float64} = SVector(50.0, 50.0, 30.0)
+    Kp_pos::SVector{3,Float64} = SVector(1.0, 1.0, 2.0)
+    Kd_pos::SVector{3,Float64} = SVector(0.5, 0.5, 1.0)
     rate_hz::Float64 = 100.0
     prev_e::MVector{3,Float64} = MVector(0.0, 0.0, 0.0)
     initialized::Bool = false
+    prev_e_pos::MVector{3,Float64} = MVector(0.0, 0.0, 0.0)  # outer-loop body pos error (for Kd_pos)
+    pos_initialized::Bool = false
 end
 
-function pid_wrench!(bus, xhat, ref, pid::PIDController, dt)
-    t = bus.t_now[]
-    Vx_d, Vy_d = ref.Vx(t), ref.Vy(t)
-    omega_d    = ref.Wz(t)
+"""
+    pose_outer_loop(xhat, ref, pid, t, dt) -> SVector{3}
 
-    e = SVector(xhat[1] - Vx_d, xhat[2] - Vy_d, xhat[3] - omega_d)
+Cascade outer loop: world position error (X̂o,Ŷo,ψ̂)−(ref.xo,ref.yo,ref.psi)
+rotated to body frame; returns a body-velocity setpoint
+V_cmd = ff(Vxo,Vyo,om)_body − Kp_pos·e_body (− Kd_pos·ė_body).
+No integral in the outer loop to avoid stacked windup.
+"""
+function pose_outer_loop(xhat, ref::Main.Profiles.PosRef, pid::PIDController, t::Real, dt::Real)
+    psi = xhat[4]
+    cψ, sψ = cos(psi), sin(psi)
+    e_xo = xhat[5] - ref.xo(t)
+    e_yo = xhat[6] - ref.yo(t)
+    e_x  =  e_xo * cψ + e_yo * sψ
+    e_y  = -e_xo * sψ + e_yo * cψ
+    e_psi = Main.EstimatorMod._wrap_angle(xhat[4] - ref.psi(t))
+    e_body = SVector(e_x, e_y, e_psi)
+
+    # Body-frame position-error derivative (PD outer loop). First tick has no
+    # history → zero to avoid a startup derivative kick.
+    de_body = pid.pos_initialized ?
+        (e_body - SVector(pid.prev_e_pos...)) / dt : SVector(0.0, 0.0, 0.0)
+    pid.prev_e_pos .= e_body
+    pid.pos_initialized = true
+
+    # Body-frame velocity feedforward
+    Vx_ff, Vy_ff, om_ff = Main.Profiles.global_to_local_frame(t, psi, ref.Vxo, ref.Vyo, ref.om)
+    V_cmd = SVector(Vx_ff, Vy_ff, om_ff) .- pid.Kp_pos .* e_body .- pid.Kd_pos .* de_body
+    return V_cmd
+end
+
+function pid_wrench!(bus, xhat, ref, pid::PIDController, dt; mode::Symbol=:velocity)
+    t = bus.t_now[]
+    if mode == :velocity
+        Vx_d, Vy_d = ref.Vx(t), ref.Vy(t)
+        omega_d    = ref.Wz(t)
+        e = SVector(xhat[1] - Vx_d, xhat[2] - Vy_d, xhat[3] - omega_d)
+    elseif mode == :pose
+        ref::Main.Profiles.PosRef
+        V_cmd = pose_outer_loop(xhat, ref, pid, t, dt)
+        e = SVector(xhat[1] - V_cmd[1], xhat[2] - V_cmd[2], xhat[3] - V_cmd[3])
+    else
+        error("pid_wrench! mode must be :velocity or :pose; got $mode")
+    end
+
     de = pid.initialized ? (e - SVector(pid.prev_e...)) / dt : SVector(0.0, 0.0, 0.0)
     pid.prev_e .= e
     pid.initialized = true
@@ -163,51 +243,253 @@ function pid_wrench!(bus, xhat, ref, pid::PIDController, dt)
 end
 
 # -----------------------------------------------------------------------------
-# MPC controller — simplified QP over per-wheel voltages
+# MPC controller — receding-horizon QP over per-wheel motor voltages (OSQP)
 # -----------------------------------------------------------------------------
+# Decision variable  U = [V₁…V₄]_{k=1..Np}  (per-wheel motor voltage over the
+# horizon).  Linear discrete body model x=[Vx,Vy,ψ̇]; only the first-step voltage
+# is applied (receding horizon) and mapped back to a task-space wrench so the
+# mixer blends MPC uniformly with ASMC/PID.
+#
+# Cost:  Σ‖x_k − x_ref,k‖²_Q + ‖U_k‖²_R + ‖ΔU_k‖²_S
+# HARD constraints (enforced inside the QP, not just penalised):
+#   • voltage box      −V_max ≤ V_{k,j} ≤ V_max
+#   • current limit    |i_{k,j}| ≤ i_max  ⇔  Kb·G·ω_j − i_max·Ra ≤ V ≤ Kb·G·ω_j + i_max·Ra
+#                       (folded into the per-wheel voltage bounds at the frozen
+#                        measured ω; at Ra=2.0/V_max=24 the voltage box binds first,
+#                        so the effective wheel-torque cap is ≈9.35 N·m)
+#   • slew-rate        |V_{k,j} − V_{k−1,j}| ≤ dV_max·dt   (first step vs last applied V)
+# Physical limits (V_max, i_max, dV_max) come from `motor` — single source of
+# truth shared with the plant motor map and the mixer.  Q/R/S/Np are the MPC
+# tuning knobs.  Falls back to the last applied voltage on QP infeasibility.
 Base.@kwdef mutable struct MPCController
     Np::Int = 10
-    Q::SVector{3,Float64} = SVector(10.0, 10.0, 5.0)
-    R::SVector{4,Float64} = SVector(0.01, 0.01, 0.01, 0.01)
-    S::SVector{4,Float64} = SVector(0.001, 0.001, 0.001, 0.001)
-    V_max::Float64 = 24.0
-    dV_max::Float64 = 10.0
-    i_max::Float64 = 3.5
+    Q::SVector{3,Float64} = SVector(50.0, 50.0, 80.0)   # velocity-mode state weights
+    R::SVector{4,Float64} = SVector(0.01, 0.01, 0.01, 0.01)  # voltage-effort weights
+    S::SVector{4,Float64} = SVector(0.05, 0.05, 0.05, 0.05)  # voltage-rate weights
+    Np_pose::Int = 15
+    Q_pose::SVector{6,Float64} = SVector(10.0, 10.0, 5.0, 1.0, 1.0, 0.5)
     rate_hz::Float64 = 100.0
-    decision::Symbol = :wrench  # :wrench or :voltage
-    last_W::SVector{3,Float64} = zeros(SVector{3})
-    warm::Vector{Float64} = Float64[]
+    use_ltv::Bool = true    # true: re-linearize along the reference each step (LTV);
+                            # false: freeze linearization at the current state (LTI)
 end
 
-"Allocate a continuous voltage command to a task-space wrench prediction."
-function _voltage_to_wrench_pred(V, ω, motor, params)
-    # Predicted torque at the future wheel speed (assume ω unchanged over horizon)
-    τ = Main.PlantMod.motor_torque(SVector{4}(V), ω, motor)
-    lever = params.R / (params.l + params.h)
-    Wx = τ[1] + τ[2] + τ[3] + τ[4]
-    Wy = -τ[1] + τ[2] + τ[3] - τ[4]
-    Wψ = (-τ[1] + τ[2] - τ[3] + τ[4]) / lever
-    return SVector(Wx, Wy, Wψ)
+"""
+    _mpc_body_matrices(params, motor, dt) -> (A, B)
+
+Linear discrete body model  x_{k+1} = A·x_k + B·U_k , state x=[Vx,Vy,ψ̇],
+input U=[V₁…V₄].  B folds the quasi-static voltage→wheel-torque sensitivity
+dτ/dV = G·η·Kt/Ra, the O-config allocation, and M_aug⁻¹; A carries the linear
+viscous (p1) damping.  (Nominal model for prediction only; the applied command
+still round-trips through the exact nonlinear motor map.)
+"""
+function _mpc_body_matrices(params, motor, dt)
+    R, l, h = params.R, params.l, params.h
+    lever = R / (l + h)
+    # O-config allocation Amix (4×3): task wrench [Wx,Wy,Wψ] → 4 wheel torques
+    # (identical 0.25 mix to mixer.jl / run_one.jl:504–512).
+    Amix = SMatrix{4,3,Float64,12}(
+         0.25, 0.25, 0.25, 0.25,          # Wx column
+        -0.25, 0.25, 0.25,-0.25,          # Wy column
+        -0.25*lever, 0.25*lever, -0.25*lever, 0.25*lever)  # Wψ column
+    dTaudV = motor.G * motor.eta * motor.Kt / motor.Ra
+    # Wheel torques → body-accel-generating wrench.  Use pinv(Amix) (CONSISTENT
+    # with the output conversion W = pinv(Amix)·τ) and the physical torque→force
+    # factor 1/R on the translational channels (yaw uses the I_psi path, no R).
+    # The old `transpose(Amix)·diag(R,R,1)` was ~R² too small AND inconsistent
+    # with the output map, so the QP saw voltage as near-powerless → under-actuated.
+    pinvA = inv(transpose(Amix) * Amix) * transpose(Amix)          # 3×4 = pinv(Amix)
+    Bwrench = SMatrix{3,4,Float64,12}(Diagonal(SVector(1.0/R, 1.0/R, 1.0)) * pinvA)
+    A = SMatrix{3,3,Float64,9}(I) -
+        dt .* SMatrix{3,3,Float64,9}(Diagonal(SVector(4*params.p1_case1/R^2,
+                                                      4*params.p1_case1/R^2, 0.0)) * params.M_aug_inv)
+    B = dt .* params.M_aug_inv * Bwrench .* dTaudV
+    return A, B, Amix
 end
 
-function mpc_wrench!(bus, xhat, ref, params, mpc::MPCController)
-    t = bus.t_now[]
-    # Reference velocity target
-    r = SVector(ref.Vx(t), ref.Vy(t), ref.Wz(t))
-    e = SVector(xhat[1], xhat[2], xhat[3]) - r
+# --- LTV linearization helpers -------------------------------------------------
+# Coriolis/centrifugal Jacobian ∂C/∂v at operating velocity v=[Vx,Vy,ψ̇], where
+# C(v) = [ms·ψ̇·Vy + m·aX·ψ̇²;  −ms·ψ̇·Vx + m·aY·ψ̇²;  −m·ψ̇·(aX·Vx + aY·Vy)]
+# (matches the nonlinear RHS0/1/2 terms in plant_rhs!).
+function _coriolis_jac(params, v)
+    ms, m, aX, aY = params.ms, params.m, params.aX, params.aY
+    Vx, Vy, w = v[1], v[2], v[3]
+    return @SMatrix [ 0.0      ms*w     ms*Vy + 2*m*aX*w;
+                     -ms*w     0.0     -ms*Vx + 2*m*aY*w;
+                     -m*w*aX  -m*w*aY  -m*(aX*Vx + aY*Vy) ]
+end
 
-    if mpc.decision == :wrench
-        # Analytical LQR-like gain (no QP solve) for robustness & brevity
-        K = SVector(mpc.Q[1]/100, mpc.Q[2]/100, mpc.Q[3]/100)
-        W = .-K .* e
-        # Saturate to plausible wrench envelope
-        Wmax = params.Max_torque * SVector(4.0, 4.0, 4.0*(params.l+params.h)/params.R)
-        W = clamp.(W, .-Wmax, Wmax)
-        mpc.last_W = W
-        return W
+# Discrete 3-state velocity transition A = I + dt·M_aug⁻¹·(J_cor(v_op) − viscous),
+# linearized at the operating velocity v_op — LTV: v_op varies along the horizon,
+# so Coriolis coupling is captured per step instead of dropped.
+function _mpc_vel_A(params, dt, v_op)
+    R = params.R
+    Jc   = _coriolis_jac(params, v_op)
+    visc = Diagonal(SVector(4*params.p1_case1/R^2, 4*params.p1_case1/R^2, 0.0))
+    Ac   = params.M_aug_inv * (Jc - visc)
+    return SMatrix{3,3,Float64,9}(I) + dt .* Ac
+end
+
+# 6-state pose transition at operating (v_op, ψ_op): position integrates body
+# velocity through R(ψ_op); the velocity block is the LTV _mpc_vel_A.
+function _mpc_pose_A(params, dt, v_op, psi)
+    Av = _mpc_vel_A(params, dt, v_op)
+    c, s = cos(psi), sin(psi)
+    A = zeros(MMatrix{6,6,Float64,36})
+    A[1,1]=1.0; A[1,4]= dt*c; A[1,5]=-dt*s
+    A[2,2]=1.0; A[2,4]= dt*s; A[2,5]= dt*c
+    A[3,3]=1.0; A[3,6]= dt
+    A[4,4]=Av[1,1]; A[4,5]=Av[1,2]; A[4,6]=Av[1,3]
+    A[5,4]=Av[2,1]; A[5,5]=Av[2,2]; A[5,6]=Av[2,3]
+    A[6,4]=Av[3,1]; A[6,5]=Av[3,2]; A[6,6]=Av[3,3]
+    return SMatrix{6,6,Float64,36}(A)
+end
+
+"""
+    mpc_wrench!(bus, xhat, ref, params, motor, mpc; mode=:velocity) -> SVector{3}
+
+Receding-horizon QP-MPC task-space wrench.  LTV: BOTH modes re-linearize the
+no-slip model at the REFERENCE operating point (velocity, heading, Coriolis) at
+every horizon step, so the prediction follows the trajectory as the regime
+changes — instead of a single frozen linearization.  `:velocity` tracks a VelRef
+(3-state), `:pose` a PosRef (6-state position-augmented).  Falls back to the last
+applied voltage on solver failure/infeasibility.
+"""
+function mpc_wrench!(bus, xhat, ref, params, motor, mpc::MPCController; mode::Symbol=:velocity)
+    t  = bus.t_now[]
+    dt = 1.0 / mpc.rate_hz
+
+    # Frozen measured wheel speed (for the current-limit box and the wrench map).
+    ω = SVector{4,Float64}(bus.y_last.ω[1], bus.y_last.ω[2], bus.y_last.ω[3], bus.y_last.ω[4])
+
+    # Voltage→Δv input matrix (B) and O-config allocation (Amix); both ψ-independent.
+    _, Bvel, Amix = _mpc_body_matrices(params, motor, dt)
+
+    if mode == :velocity
+        n, m, Np = 3, 4, mpc.Np
+        Bm = Matrix(Bvel)
+        x0 = SVector(xhat[1], xhat[2], xhat[3])
+        Qtrack = mpc.Q
+        # LTV: linearize per step at the reference operating velocity; LTI: freeze
+        # at the current estimated velocity for all steps.
+        As = Matrix{Float64}[]
+        for k in 1:Np
+            tk = t + (k-1)*dt
+            v_op = mpc.use_ltv ? SVector(ref.Vx(tk), ref.Vy(tk), ref.Wz(tk)) :
+                                 SVector(xhat[1], xhat[2], xhat[3])
+            push!(As, Matrix(_mpc_vel_A(params, dt, v_op)))
+        end
+        xref_fn = tk -> SVector(ref.Vx(tk), ref.Vy(tk), ref.Wz(tk))
+
+    elseif mode == :pose
+        ref::Main.Profiles.PosRef
+        n, m, Np = 6, 4, mpc.Np_pose
+        Bm = zeros(6, 4);  Bm[4:6, :] .= Matrix(Bvel)
+        x0 = SVector(xhat[5], xhat[6], xhat[4], xhat[1], xhat[2], xhat[3])
+        Qtrack = mpc.Q_pose
+        # LTV: linearize per step at reference heading+velocity; LTI: freeze at
+        # the current estimated heading+velocity for all steps.
+        As = Matrix{Float64}[]
+        for k in 1:Np
+            tk = t + (k-1)*dt
+            if mpc.use_ltv
+                psi_k = ref.psi(tk)
+                ck, sk = cos(psi_k), sin(psi_k)
+                Vxw, Vyw = ref.Vxo(tk), ref.Vyo(tk)
+                v_op = SVector(Vxw*ck + Vyw*sk, -Vxw*sk + Vyw*ck, ref.om(tk))
+            else
+                psi_k = xhat[4]
+                v_op = SVector(xhat[1], xhat[2], xhat[3])
+            end
+            push!(As, Matrix(_mpc_pose_A(params, dt, v_op, psi_k)))
+        end
+        xref_fn = function (tk)
+            ck, sk = cos(ref.psi(tk)), sin(ref.psi(tk))
+            Vxw, Vyw = ref.Vxo(tk), ref.Vyo(tk)
+            return SVector(ref.xo(tk), ref.yo(tk), ref.psi(tk),
+                           Vxw*ck + Vyw*sk, -Vxw*sk + Vyw*ck, ref.om(tk))
+        end
     else
-        error("MPC voltage-decision mode not yet implemented; use :wrench")
+        error("mpc_wrench! mode must be :velocity or :pose; got $mode")
     end
+
+    # --- Condensed LTV prediction  x_k = Φ(k,0)·x0 + Σ_j Φ(k,j)·B·U_j -------
+    # Φ(k,j) = As[k]·As[k-1]·…·As[j+1]  (product of the intervening transitions).
+    Sx = zeros(n*Np, n)
+    Su = zeros(n*Np, m*Np)
+    for k in 1:Np
+        Phi = Matrix{Float64}(I, n, n)
+        for i in k:-1:1;  Phi = Phi * As[i];  end
+        Sx[(k-1)*n+1:k*n, :] = Phi
+        for j in 1:k
+            P = Matrix{Float64}(I, n, n)
+            for i in k:-1:(j+1);  P = P * As[i];  end
+            Su[(k-1)*n+1:k*n, (j-1)*m+1:j*m] = P * Bm
+        end
+    end
+
+    # Future reference preview.
+    xref = zeros(n*Np)
+    for k in 1:Np
+        tk = t + k*dt
+        xref[(k-1)*n+1:k*n] = collect(xref_fn(tk))
+    end
+
+    # --- Rate-difference operator D (D·U = [U₁; U₂−U₁; …]) -------------------
+    D = zeros(m*Np, m*Np)
+    for k in 1:Np
+        D[(k-1)*m+1:k*m, (k-1)*m+1:k*m] = Matrix{Float64}(I, m, m)
+        if k > 1
+            D[(k-1)*m+1:k*m, (k-2)*m+1:(k-1)*m] = -Matrix{Float64}(I, m, m)
+        end
+    end
+    # Previous applied voltage padded to full horizon; ΔU_1 is measured vs it.
+    p_prev = vcat(collect(bus.mpc_last_u), zeros(m*(Np-1)))
+
+    # --- Cost  0.5 Uᵀ H U + fᵀ U -------------------------------------------
+    Qd = Diagonal(repeat(collect(Qtrack), Np))
+    Rd = Diagonal(repeat(collect(mpc.R), Np))
+    Sd = Diagonal(repeat(collect(mpc.S), Np))
+    H = Su' * Qd * Su + Rd + D' * Sd * D
+    H = (H + H') / 2 + 1e-6 * I
+    f = Su' * Qd * (Sx * x0 .- xref) .- D' * Sd * p_prev
+
+    # --- Hard constraints  l ≤ [I; D]·U ≤ u --------------------------------
+    vlo = zeros(m); vhi = zeros(m)
+    for j in 1:m
+        centre = motor.Kb * motor.G * ω[j]
+        vlo[j] = clamp(centre - motor.i_max * motor.Ra, -motor.V_max, motor.V_max)
+        vhi[j] = clamp(centre + motor.i_max * motor.Ra, -motor.V_max, motor.V_max)
+    end
+    lb_box = repeat(vlo, Np);  ub_box = repeat(vhi, Np)
+    dstep  = motor.dV_max * dt
+    lb_rate = p_prev .- dstep
+    ub_rate = p_prev .+ dstep
+
+    Acon = vcat(sparse(1.0I, m*Np, m*Np), sparse(D))
+    lcon = vcat(lb_box, lb_rate)
+    ucon = vcat(ub_box, ub_rate)
+
+    # --- Solve (warm-started, polished) ------------------------------------
+    model = OSQP.Model()
+    OSQP.setup!(model; P = sparse(H), q = Vector(f), A = Acon, l = lcon, u = ucon,
+                verbose = false, warm_start = true, polish = true)
+    if length(bus.mpc_warm) == m*Np
+        OSQP.warm_start!(model; x = bus.mpc_warm)
+    end
+    res = OSQP.solve!(model)
+
+    if res.info.status_val in (1, 2)          # SOLVED, SOLVED_INACCURATE
+        u0 = SVector{4,Float64}(res.x[1], res.x[2], res.x[3], res.x[4])
+        bus.mpc_last_u = u0
+        bus.mpc_warm   = copy(res.x)
+    else
+        u0 = bus.mpc_last_u                    # feasible fallback
+    end
+
+    # Map the applied voltage back to an equivalent task-space wrench.
+    τ_u0 = Main.PlantMod.motor_torque(u0, ω, motor)
+    W = SVector{3,Float64}(pinv(Matrix(Amix)) * Vector(τ_u0))
+    return W
 end
 
 end # module

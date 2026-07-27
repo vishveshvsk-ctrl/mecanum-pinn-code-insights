@@ -12,7 +12,7 @@ Single source of truth for which controller/estimator blocks are active and at
 what rates.  All discrete callbacks are gated by the Boolean flags.
 
   tracking   :: :pose or :velocity
-  estimator  :: :kalman, :kalman_imm, :smo, or :none
+  estimator  :: :kalman, :kalman_imm, :eskf, :smo, or :none
   use_dhat   :: add SMO disturbance feedforward (requires estimator==:smo)
   use_asmc   :: enable adaptive sliding-mode controller
   use_mpc    :: enable QP-MPC controller
@@ -40,11 +40,13 @@ Base.@kwdef struct HybridConfig
     f_fuzzy::Float64      = 50.0
     f_mix::Float64        = 1000.0
     sensor_seed::Int      = 42
-    reltol::Float64       = 1e-8
+    reltol::Float64       = 1e-9
     abstol_bristle::Float64 = 1e-10
     dtmax::Float64        = 1e-3
-    solver_symbol::Symbol = :TRBDF2
+    maxiters::Int         = 10_000_000
+    solver_symbol::Symbol = :FBDF
     saveat_hz::Float64    = 500.0
+    abstol::Union{Nothing, Vector{Float64}} = nothing
 end
 
 # Helper used by scheduler to decide which blocks are enabled.

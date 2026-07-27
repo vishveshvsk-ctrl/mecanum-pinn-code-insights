@@ -1,0 +1,105 @@
+{
+  "hash": "mu05_chi005_uniform_10traj",
+  "entries": [
+    {
+      "name": "coupled_vomega",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "coupled_vomega_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "coupled_vomega",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "coupled_vomega_mu_0p5.toml",
+      "combo_idx": 2,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "long_circle",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "long_circle_mu_0p5.toml",
+      "combo_idx": 2,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "long_circle",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "long_circle_mu_0p5.toml",
+      "combo_idx": 3,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "octagon",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "octagon_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "octagon",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "octagon_mu_0p5.toml",
+      "combo_idx": 2,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "spin_creep",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spin_creep_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "spin_creep",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spin_creep_mu_0p5.toml",
+      "combo_idx": 2,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "spiral_orbit",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spiral_orbit_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "spiral_orbit",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spiral_orbit_mu_0p5.toml",
+      "combo_idx": 2,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    }
+  ]
+}

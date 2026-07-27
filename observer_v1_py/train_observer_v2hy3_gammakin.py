@@ -94,6 +94,20 @@ def main() -> None:
     ap.add_argument("--limit-files", type=int, default=0)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--run-tag", type=str, default=None)
+    ap.add_argument("--slip-loss-kind", choices=["mse", "log"], default=None,
+                    help="slip-consistency loss shape. 'mse'=linear normalized "
+                         "(baseline, default); 'log'=half-square log-ratio, which "
+                         "moves gradient off the >p99 tail (73.5%%->1.5%%) into the "
+                         "gate band (0.1%%->23%%).")
+    ap.add_argument("--slip-log-eps", type=float, default=None,
+                    help="turnover scale of the log-slip weight (m/s); weight peaks "
+                         "at eps/sqrt(3). Default 0.01 = the gate width. Do not go "
+                         "below 0.005.")
+    ap.add_argument("--use-vp-components", action="store_true",
+                    help="take vpm from the .vpcomp.npz sidecars (component-"
+                         "consistent label) instead of the cached decimate(hypot(.)), "
+                         "which is Jensen-biased high at small |Vp|. Build sidecars "
+                         "with observer_v1_py/build_vp_components.py first.")
     args = ap.parse_args()
 
     kw = dict(data_dir=args.data_dir, whitelist_csv=args.whitelist,
@@ -123,6 +137,8 @@ def main() -> None:
                             ("vy_label_ramp_epochs", "vy_label_ramp_epochs"),
                             ("finetune_gamma_from", "finetune_gamma_from"),
                             ("gamma_high_slip_upweight", "gamma_high_slip_upweight"),
+                            ("slip_loss_kind", "slip_loss_kind"),
+                            ("slip_log_eps", "slip_log_eps"),
                             ("warm_from", "warm_from")]:
         v = getattr(args, arg_name)
         if v is not None:
@@ -141,6 +157,8 @@ def main() -> None:
         kw["gamma_base_detach"] = False
     if args.freeze_encoder_dv:
         kw["freeze_encoder_dv"] = True
+    if args.use_vp_components:
+        kw["use_vp_components"] = True
 
     cfg = ObserverConfigV2Hy3GammaKin(**kw)
     print(f"[cli-gammakin] model={cfg.model} window={cfg.window} stride={cfg.eff_stride} "
@@ -148,7 +166,10 @@ def main() -> None:
           f"w_slip={cfg.w_slip} upweight={cfg.gamma_high_slip_upweight} "
           f"dgamma_scale={cfg.dgamma_scale:.4f} dv_scale={cfg.dv_scale} "
           f"lam={cfg.vy_label_start}->{cfg.vy_label_end} "
-          f"detach={cfg.gamma_base_detach} cache={cfg.cache_dir or 'off'}")
+          f"detach={cfg.gamma_base_detach} cache={cfg.cache_dir or 'off'} "
+          f"slip_loss={cfg.slip_loss_kind}"
+          f"{f'(eps={cfg.slip_log_eps:g})' if cfg.slip_loss_kind == 'log' else ''} "
+          f"vp_components={cfg.use_vp_components}")
     train_v2hy3_gammakin(cfg)
 
 

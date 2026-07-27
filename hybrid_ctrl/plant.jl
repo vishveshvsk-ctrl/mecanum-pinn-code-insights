@@ -22,11 +22,15 @@ Base.@kwdef struct MotorParams
     Kt::Float64    = 0.0335           # N·m/A  (torque constant)
     Kb::Float64    = 0.0335           # V·s/rad (back-EMF, ideal-motor equality)
     G::Float64     = 9405.0 / 364.0   # ≈ 25.84  gear reduction motor:wheel
-    Ra::Float64    = 2.5              # Ω   (winding resistance — calibrate)
+    Ra::Float64    = 2.0              # Ω   winding resistance (calibrate; 2.0 lets ~12 A flow at 24 V)
     La::Float64    = 0.0              # H   (quasi-static default)
-    i_max::Float64 = 3.5              # A   (derived current limit)
+    i_max::Float64 = 12.8             # A   current limit (G·η·Kt·12.8A ≈ 9.97 N·m at η=0.9).
+                                      #     NOTE: at Ra=2.0, V_max=24 the voltage limit binds first
+                                      #     (i≈V_max/Ra=12 A), so the effective torque cap is ≈9.35 N·m
+                                      #     and this current limit stays near-slack.
     V_max::Float64 = 24.0             # V   (battery bus voltage)
-    eta::Float64   = 0.85             # gear efficiency
+    dV_max::Float64 = 200.0           # V/s per-second voltage slew limit (hard in MPC + mixer)
+    eta::Float64   = 0.9              # gear efficiency (0.9 makes i_max=12.8 A ≈ 10 N·m cap)
     tau_f::Float64 = 0.01             # N·m motor-shaft friction
     cpr::Int       = 4000             # encoder counts/rev on MOTOR shaft
     dynamic_electrical::Bool = false
@@ -152,7 +156,7 @@ function plant_rhs!(du, u, p::PlantODEParams, t)
         Mi_sat = motor_torque(bus.v_cmd, wi, motor)
     end
 
-    Mz_rolleri = @. px * Fy_i - py * Fx_i + Mz_i
+    Mz_rolleri = @. px * Fy_i - (py  + DYi) * Fx_i + Mz_i
     RHS0 = sum(Fx_i)          + ms * psi_dot * Vy  + m * aX * psi_dot^2
     RHS1 = sum(Fy_i)          - ms * psi_dot * Vx  + m * aY * psi_dot^2
     RHS2 = sum(Mz_rolleri)    - m * psi_dot * (aX * Vx + aY * Vy)

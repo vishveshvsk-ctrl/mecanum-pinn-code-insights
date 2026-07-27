@@ -1,0 +1,59 @@
+{
+  "hash": "a18190411ff35062e0c0317306405a8ff91b523a85ea176c34592425d35b9f0b",
+  "entries": [
+    {
+      "name": "coupled_vomega",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "coupled_vomega_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5
+    },
+    {
+      "name": "docking",
+      "run_mode": "pose",
+      "ref_type": "posref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "docking_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5
+    },
+    {
+      "name": "ellipse",
+      "run_mode": "pose",
+      "ref_type": "posref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "ellipse_mu_0p5.toml",
+      "combo_idx": 24,
+      "mu": 0.5
+    },
+    {
+      "name": "multisine_75percent_cap",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "multisine_75percent_cap_mu_0p3.toml",
+      "combo_idx": 1,
+      "mu": 0.3
+    },
+    {
+      "name": "octagon",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "octagon_mu_0p3.toml",
+      "combo_idx": 2,
+      "mu": 0.3
+    },
+    {
+      "name": "spiral_orbit",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spiral_orbit_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5
+    }
+  ]
+}
