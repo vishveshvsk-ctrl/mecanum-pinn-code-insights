@@ -29,6 +29,7 @@ import pyarrow.feather  # noqa: F401  (import BEFORE torch on Windows)
 import argparse
 import json
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
@@ -63,6 +64,7 @@ def _is_gammakin(m: dict) -> bool:
 
 @torch.no_grad()
 def collect(run_dir: Path, ckpt: str, split: str, n_files: int, vy_label: float,
+            use_vp_components: Optional[bool] = None,
             regime: str = ""):
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     m = json.load(open(run_dir / "metrics.json"))
@@ -79,6 +81,13 @@ def collect(run_dir: Path, ckpt: str, split: str, n_files: int, vy_label: float,
         cfg = ObserverConfigV2Hy3(**{k: v for k, v in m["cfg"].items() if k in FIELDS})
         dgsc = None
     cfg.jobs = 0
+    # Label-source override. Checkpoints predating the .vpcomp sidecars carry no
+    # `use_vp_components` field, so they would silently rebuild cfg with the OLD
+    # Jensen-biased vpm while a slipLOG run (which saved True) uses the corrected
+    # one -- scoring the two against DIFFERENT true_stick_frac and manufacturing a
+    # difference. Forcing it here puts every run on one label footing.
+    if use_vp_components is not None:
+        cfg.use_vp_components = bool(use_vp_components)
     cfg = cfg.resolved()
     nrm = D.Normalizer.from_npz(run_dir / "norm.npz")
     gamma_p95 = float(nrm.y_std[0])
@@ -159,11 +168,20 @@ def main():
                     help="regime TOML to discover files from (e.g. regimes/"
                          "eval_multisine.toml) — OOD/held-out eval instead of the "
                          "cross-fold split. Output goes to regime_attrib_<stem>*.json.")
+    ap.add_argument("--use-vp-components", dest="use_vp", action="store_true",
+                    default=None,
+                    help="force the component-consistent vpm label (.vpcomp.npz "
+                         "sidecars) regardless of what the checkpoint's cfg says. "
+                         "REQUIRED to compare runs trained before and after the "
+                         "sidecars exist -- otherwise each is scored against its "
+                         "own true_stick_frac. Output is tagged _vpc.")
+    ap.add_argument("--no-use-vp-components", dest="use_vp", action="store_false",
+                    help="force the OLD decimate(hypot(.)) label.")
     args = ap.parse_args()
 
     run = Path(args.run)
     a, gamma_p95, nf = collect(run, args.checkpoint, args.split, args.n_files,
-                               args.vy_label, args.regime)
+                               args.vy_label, args.use_vp, args.regime)
     t = a["tvp"]
     bins = [("all", np.ones_like(t, bool)), ("stick<0.01", t < 0.01),
             ("slip0.01-0.6", (t >= 0.01) & (t < 0.6)), ("high>0.6", t >= 0.6)]
@@ -224,7 +242,11 @@ def main():
     m = json.load(open(run / "metrics.json"))
     suffix = f"_lam{args.vy_label:g}" if _is_gammakin(m) else ""
     reg_tag = f"_{Path(args.regime).stem}" if args.regime else ""
-    dst = run / f"regime_attrib{reg_tag}{suffix}.json"
+    # `_vpc` keeps the relabelled scoring in its OWN file so the pre-existing
+    # baseline JSONs (old label) are never overwritten.
+    vpc_tag = "_vpc" if args.use_vp else ""
+    out["use_vp_components"] = bool(args.use_vp)
+    dst = run / f"regime_attrib{reg_tag}{suffix}{vpc_tag}.json"
     with open(dst, "w") as fh:
         json.dump(out, fh, indent=1)
     print(f"\n[regime-attrib] metrics -> {dst}")

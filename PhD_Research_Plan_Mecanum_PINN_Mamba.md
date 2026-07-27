@@ -35,7 +35,7 @@
 ```
 O1
 ├── T1.1  Julia ODE refinement & dataset generation (COMPLETE)
-│   ├── 39-D stiff ODE (TRBDF2, reltol 1e-8, 2 kHz)
+│   ├── 39-D stiff ODE (FBDF, reltol 1e-9, 2 kHz)
 │   ├── 24 excitation profiles, μ ∈ {0.3, 0.5, 0.8}, χ ∈ [0.001, 0.01]
 │   └── Output: Arrow + JLD2 (5345/5670 whitelisted)
 │

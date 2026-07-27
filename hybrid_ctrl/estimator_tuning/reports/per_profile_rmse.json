@@ -1,0 +1,44 @@
+{
+  "estimator": "eskf",
+  "seed": 44,
+  "eval_seed": 44,
+  "data_dir": "../data/Simulation_Data_MecanumSlipSpin_LugreAdamov",
+  "units": {
+    "vel_rmse": "m/s",
+    "rate_rmse": "rad/s",
+    "pos_rmse": "m",
+    "heading_rmse": "rad",
+    "score": "dimensionless (absolute-tolerance objective)"
+  },
+  "training_set": {
+    "n_entries": 10,
+    "average_vel_rmse_m_s": 0.020285,
+    "average_rate_rmse_rad_s": 0.023870,
+    "average_pos_rmse_m": 0.015845,
+    "average_heading_rmse_rad": 0.017392,
+    "average_score": 50.8193
+  },
+  "training_profiles": [
+    {"name": "coupled_vomega", "profile_toml": "coupled_vomega_mu_0p5.toml", "combo": 1, "mu": 0.5, "vel_rmse": 0.035281, "rate_rmse": 0.016665, "pos_rmse": 0.016020, "heading_rmse": 0.009566, "score": 87.47},
+    {"name": "coupled_vomega", "profile_toml": "coupled_vomega_mu_0p5.toml", "combo": 2, "mu": 0.5, "vel_rmse": 0.015395, "rate_rmse": 0.016436, "pos_rmse": 0.016017, "heading_rmse": 0.009567, "score": 39.27},
+    {"name": "long_circle", "profile_toml": "long_circle_mu_0p5.toml", "combo": 2, "mu": 0.5, "vel_rmse": 0.005325, "rate_rmse": 0.016144, "pos_rmse": 0.015853, "heading_rmse": 0.009734, "score": 15.10},
+    {"name": "long_circle", "profile_toml": "long_circle_mu_0p5.toml", "combo": 3, "mu": 0.5, "vel_rmse": 0.007504, "rate_rmse": 0.009552, "pos_rmse": 0.014307, "heading_rmse": 0.008471, "score": 19.88},
+    {"name": "octagon", "profile_toml": "octagon_mu_0p5.toml", "combo": 1, "mu": 0.5, "vel_rmse": 0.027724, "rate_rmse": 0.036324, "pos_rmse": 0.016423, "heading_rmse": 0.088736, "score": 76.81},
+    {"name": "octagon", "profile_toml": "octagon_mu_0p5.toml", "combo": 2, "mu": 0.5, "vel_rmse": 0.023565, "rate_rmse": 0.045448, "pos_rmse": 0.016436, "heading_rmse": 0.010140, "score": 60.16},
+    {"name": "spin_creep", "profile_toml": "spin_creep_mu_0p5.toml", "combo": 1, "mu": 0.5, "vel_rmse": 0.038026, "rate_rmse": 0.014091, "pos_rmse": 0.015897, "heading_rmse": 0.009511, "score": 83.71},
+    {"name": "spin_creep", "profile_toml": "spin_creep_mu_0p5.toml", "combo": 2, "mu": 0.5, "vel_rmse": 0.036800, "rate_rmse": 0.011631, "pos_rmse": 0.015702, "heading_rmse": 0.009649, "score": 84.44},
+    {"name": "spiral_orbit", "profile_toml": "spiral_orbit_mu_0p5.toml", "combo": 1, "mu": 0.5, "vel_rmse": 0.006435, "rate_rmse": 0.036428, "pos_rmse": 0.015896, "heading_rmse": 0.009271, "score": 20.27},
+    {"name": "spiral_orbit", "profile_toml": "spiral_orbit_mu_0p5.toml", "combo": 2, "mu": 0.5, "vel_rmse": 0.006793, "rate_rmse": 0.035978, "pos_rmse": 0.015896, "heading_rmse": 0.009271, "score": 21.09}
+  ],
+  "validation": {
+    "name": "long_circle",
+    "profile_toml": "long_circle_mu_0p5.toml",
+    "combo": 1,
+    "mu": 0.5,
+    "vel_rmse": 0.018619,
+    "rate_rmse": 0.014339,
+    "pos_rmse": 0.127333,
+    "heading_rmse": 0.044064,
+    "score": 58.3453
+  }
+}

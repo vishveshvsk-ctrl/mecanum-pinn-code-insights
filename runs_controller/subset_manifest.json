@@ -1,0 +1,36 @@
+{
+  "description": "Whitelisted controller tuning/eval subset (worst-feasible per profile). All combos are keep*/keep_flagged in diagnostics_combined.csv. straightline dropped (absent from PINN dataset).",
+  "mu": 0.5,
+  "run_dir": "trajectory_files_run_0p5_main",
+  "training_set": [
+    {"name": "octagon",         "combo_idx": 206, "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep"},
+    {"name": "spin_creep",      "combo_idx": 178, "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep_flagged:chatter"},
+    {"name": "coupled_vomega",  "combo_idx": 12,  "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep"},
+    {"name": "spiral_orbit",    "combo_idx": 37,  "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep"},
+    {"name": "ellipse_tangent", "combo_idx": 55,  "ref_type": "posref", "run_mode": "pose",     "role": "stress", "whitelist": "keep"},
+    {"name": "ellipse_crab",    "combo_idx": 83,  "ref_type": "posref", "run_mode": "pose",     "role": "hardest_available", "whitelist": "keep"}
+  ],
+  "eval_grid": [
+    {"name": "octagon",         "combo_idx": 1,   "ref_type": "velref", "run_mode": "velocity", "role": "easy",   "whitelist": "keep"},
+    {"name": "octagon",         "combo_idx": 206, "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep"},
+    {"name": "spin_creep",      "combo_idx": 255, "ref_type": "velref", "run_mode": "velocity", "role": "easy",   "whitelist": "keep_flagged:chatter+burst"},
+    {"name": "spin_creep",      "combo_idx": 178, "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep_flagged:chatter"},
+    {"name": "coupled_vomega",  "combo_idx": 114, "ref_type": "velref", "run_mode": "velocity", "role": "easy",   "whitelist": "keep"},
+    {"name": "coupled_vomega",  "combo_idx": 12,  "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep"},
+    {"name": "spiral_orbit",    "combo_idx": 27,  "ref_type": "velref", "run_mode": "velocity", "role": "easy",   "whitelist": "keep_flagged:chatter"},
+    {"name": "spiral_orbit",    "combo_idx": 37,  "ref_type": "velref", "run_mode": "velocity", "role": "stress", "whitelist": "keep"},
+    {"name": "ellipse_tangent", "combo_idx": 1,   "ref_type": "posref", "run_mode": "pose",     "role": "easy",   "whitelist": "keep_flagged:chatter"},
+    {"name": "ellipse_tangent", "combo_idx": 55,  "ref_type": "posref", "run_mode": "pose",     "role": "stress", "whitelist": "keep"},
+    {"name": "ellipse_crab",    "combo_idx": 73,  "ref_type": "posref", "run_mode": "pose",     "role": "easy",   "whitelist": "keep_flagged:chatter"},
+    {"name": "ellipse_crab",    "combo_idx": 83,  "ref_type": "posref", "run_mode": "pose",     "role": "hardest_available", "whitelist": "keep"},
+    {"name": "multisine_75percent_cap", "combo_idx": 1, "ref_type": "velref", "run_mode": "velocity", "role": "broadband_eval_only", "whitelist": "keep_flagged:chatter"},
+    {"name": "long_circle",     "combo_idx": 52,  "ref_type": "velref", "run_mode": "velocity", "role": "easy_eval_only",   "whitelist": "keep"},
+    {"name": "long_circle",     "combo_idx": 102, "ref_type": "velref", "run_mode": "velocity", "role": "stress_eval_only", "whitelist": "keep"}
+  ],
+  "notes": {
+    "dropped": "straightline (both easy and stress) — profile absent from diagnostics_combined.csv / PINN dataset",
+    "multisine_note": "uniformly gentle (peak ~0.15 m/s); frequency-content probe, eval-only, no stress variant",
+    "long_circle_note": "eval-only, held-out; old ASMC tracks its sustained yaw poorly (~246 mrad/s) -> generalization test for the yaw-trained ASMC",
+    "tuner_hook": "training_set == tune_controller.jl default_trajs_3 (--trajset 3)"
+  }
+}

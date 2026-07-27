@@ -31,7 +31,7 @@ module Profiles
 using FunctionWrappers: FunctionWrapper
 using ForwardDiff
 
-export VelRef, PosRef, build, BUILDERS
+export VelRef, PosRef, build, BUILDERS, velref_to_posref
 
 const Getter = FunctionWrapper{Float64, Tuple{Float64}}   # t::Float64 -> Float64, concrete type
 
@@ -102,6 +102,103 @@ function _posref(fxo, fyo, fpsi, tstops, T_total)
            Getter(d1(fxo)), Getter(d1(fyo)), Getter(d1(fpsi)),
            Getter(d2(fxo)), Getter(d2(fyo)), Getter(d2(fpsi)),
            sort(collect(Float64, tstops)), Float64(T_total))
+end
+
+# =============================================================================
+# velref_to_posref — lift a VelRef to a full PosRef for :pose tracking.
+#
+# The velref-designed profiles (octagon, spin_creep, coupled_vomega,
+# spiral_orbit) were only ever tracked in :velocity mode, so X,Y=∫V and
+# ψ=∫ψ̇ drift unboundedly under noise (bias integrates, nothing feeds back on
+# position/heading). This adapter rotates the body-velocity reference to the
+# world frame through vr.psi and integrates to (xo,yo), producing a complete
+# PosRef the existing :pose control path (asmc_wrench!/pid_wrench!, already
+# reused unchanged) can feed back on.
+#
+# psi/om/al and the rotated Vxo/Vyo/Axo/Ayo are ALGEBRAIC — exact evaluations
+# of vr's own analytic Vx/Vy/Ax/Ay/Wz/al getters, zero interpolation error.
+# Only xo/yo require numerical treatment: the velocity closures have no
+# general closed-form antiderivative, so they are integrated (trapezoidal, on
+# a uniform grid ≤ solver dtmax) and interpolated with a cubic Hermite that
+# uses the EXACT Vxo/Vyo as node derivatives (not a finite-difference
+# estimate) — so d/dt(xo) matches Vxo exactly at nodes and to O(h^3) between
+# them.
+# =============================================================================
+"""
+    velref_to_posref(vr::VelRef; x0=0.0, y0=0.0, dt=nothing) -> PosRef
+
+Lift a body-velocity reference to a full global-frame position reference by
+rotating (Vx,Vy) through the reference heading vr.psi and integrating to
+(xo,yo). Fills all 9 PosRef getters:
+  psi, om, al       = vr.psi, vr.Wz, vr.al                       (pass-through)
+  Vxo,Vyo           = R(psi)*(vr.Vx, vr.Vy)                      [world velocity FF]
+  xo,yo             = x0,y0 + cumulative-integral of (Vxo,Vyo)   [world position]
+  Axo,Ayo           = R(psi)*(vr.Ax, vr.Ay) + Coriolis(vr.Wz × Vworld)  [world accel FF]
+`(x0,y0)` should match the plant's initial pose (the harness starts at the
+origin, so the default (0,0) is correct for run_hybrid). `dt` is the
+integration grid step (default 1e-3 s, matching the solver's dtmax); pass a
+smaller value for tighter round-trip accuracy.
+"""
+function velref_to_posref(vr::VelRef; x0::Real=0.0, y0::Real=0.0, dt::Union{Real,Nothing}=nothing)
+    Ttot = vr.T_total
+    h0 = dt === nothing ? 1e-3 : Float64(dt)
+    n  = max(2, ceil(Int, Ttot / h0) + 1)
+    ts = collect(range(0.0, Ttot; length=n))
+    h  = ts[2] - ts[1]
+
+    # Exact rotation of the body-velocity reference to the world frame.
+    rot(t) = (c = cos(vr.psi(t)); s = sin(vr.psi(t));
+              vx = vr.Vx(t); vy = vr.Vy(t);
+              (vx * c - vy * s, vx * s + vy * c))
+
+    Vxo_n = Vector{Float64}(undef, n)
+    Vyo_n = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        Vxo_n[i], Vyo_n[i] = rot(ts[i])
+    end
+
+    xo_n = Vector{Float64}(undef, n); xo_n[1] = Float64(x0)
+    yo_n = Vector{Float64}(undef, n); yo_n[1] = Float64(y0)
+    @inbounds for i in 2:n
+        xo_n[i] = xo_n[i-1] + 0.5 * h * (Vxo_n[i-1] + Vxo_n[i])
+        yo_n[i] = yo_n[i-1] + 0.5 * h * (Vyo_n[i-1] + Vyo_n[i])
+    end
+
+    fxo = _hermite_interp(ts, xo_n, Vxo_n, h)
+    fyo = _hermite_interp(ts, yo_n, Vyo_n, h)
+    fVxo(t) = rot(t)[1]
+    fVyo(t) = rot(t)[2]
+    # Coriolis-correct world accel: d/dt[R(psi)*V] = R(psi)*A + Wz*R'(psi)*V,
+    # and R'(psi) = [[-s,-c],[c,-s]] ⇒ Wz*R'(psi)*V = Wz*(-Vyo, Vxo).
+    fAxo(t) = (c = cos(vr.psi(t)); s = sin(vr.psi(t));
+               vr.Ax(t) * c - vr.Ay(t) * s - vr.Wz(t) * fVyo(t))
+    fAyo(t) = (c = cos(vr.psi(t)); s = sin(vr.psi(t));
+               vr.Ax(t) * s + vr.Ay(t) * c + vr.Wz(t) * fVxo(t))
+
+    return PosRef(Getter(fxo), Getter(fyo), vr.psi,
+                  Getter(fVxo), Getter(fVyo), vr.Wz,
+                  Getter(fAxo), Getter(fAyo), vr.al,
+                  vr.tstops, vr.T_total)
+end
+
+# Piecewise-cubic Hermite interpolant on a uniform grid: given node values `y`
+# and EXACT node derivatives `dy` (here, the analytic Vxo/Vyo getters — not a
+# finite-difference estimate), matches the true slope at every node and stays
+# C¹ between them. `t` outside [ts[1],ts[end]] clamps to the boundary segment.
+function _hermite_interp(ts::Vector{Float64}, y::Vector{Float64}, dy::Vector{Float64}, h::Float64)
+    n = length(ts)
+    t0, tN = ts[1], ts[end]
+    return function (t::Float64)
+        tc = clamp(t, t0, tN)
+        i = clamp(1 + floor(Int, (tc - t0) / h), 1, n - 1)
+        s = (tc - ts[i]) / h
+        s2 = s * s; s3 = s2 * s
+        h00 =  2s3 - 3s2 + 1
+        h10 =      s3 - 2s2 + s
+        h01 = -2s3 + 3s2
+        h11 =      s3 -      s2
+        return h00 * y[i] + h10 * h * dy[i] + h01 * y[i+1] + h11 * h * dy[i+1]
+    end
 end
 
 # =============================================================================
@@ -558,6 +655,36 @@ end
 # =============================================================================
 # Registry + dispatch
 # =============================================================================
+# =============================================================================
+# DOCKING — approach-and-hold PosRef for pose-tracking control evaluation.
+# Smoothly transitions from an initial offset pose to a target pose, then holds.
+# =============================================================================
+function build_docking(cfg)::PosRef
+    x0    = _req(cfg, "x_start")
+    y0    = _req(cfg, "y_start")
+    psi0  = _deg(_req(cfg, "psi_start_deg"))
+    x1    = _req(cfg, "x_target")
+    y1    = _req(cfg, "y_target")
+    psi1  = _deg(_req(cfg, "psi_target_deg"))
+    Tapp  = Float64(get(cfg, "T_approach", 5.0))
+    Thold = Float64(get(cfg, "T_hold", 5.0))
+    Ttot  = Tapp + Thold
+
+    # Choose shortest heading path
+    dpsi_raw = psi1 - psi0
+    dpsi = dpsi_raw - 2pi * round(dpsi_raw / (2pi))
+
+    s(t) = _S(_sat(t / Tapp))
+    ds(t) = t <= 0.0 || t >= Tapp ? 0.0 : (10*(3/Tapp)*(t/Tapp)^2 - 15*(4/Tapp)*(t/Tapp)^3 + 6*(5/Tapp)*(t/Tapp)^4)
+    # Actually derivative of _S(u) w.r.t. t is _S'(u) * du/dt; use ForwardDiff below for safety.
+
+    fxo(t) = t <= Tapp ? x0 + (x1 - x0) * s(t) : x1
+    fyo(t) = t <= Tapp ? y0 + (y1 - y0) * s(t) : y1
+    fpsi(t) = t <= Tapp ? psi0 + dpsi * s(t) : psi0 + dpsi
+
+    return _posref(fxo, fyo, fpsi, [0.0, Tapp, Ttot], Ttot)
+end
+
 const BUILDERS = Dict{String, Function}(
     "octagon"     => build_octagon,
     "long_circle" => build_long_circle,
@@ -567,6 +694,7 @@ const BUILDERS = Dict{String, Function}(
     "multisine"   => build_multisine,
     "ellipse"     => build_ellipse,
     "straightline"   => build_straightline,     # heading-fixed β-ray (feasibility probe)
+    "docking"     => build_docking,             # approach-and-hold PosRef
 )
 
 function build(name::AbstractString, cfg::AbstractDict)

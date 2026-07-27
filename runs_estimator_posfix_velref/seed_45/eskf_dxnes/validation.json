@@ -1,0 +1,8 @@
+{
+  "score": 64.01948307220503,
+  "vel_rmse": 0.005139314303887746,
+  "smoothness": 12.27086738592356,
+  "inslip_vel_rmse": 0.005906200042795699,
+  "rate_rmse": 0.03708160406552476,
+  "trajectory": "long_circle"
+}

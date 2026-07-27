@@ -1,0 +1,65 @@
+{
+  "hash": "93d2ff533c2106d57f71c059cfff6625755de10d7fd21665117248cb4b897e55",
+  "entries": [
+    {
+      "name": "coupled_vomega",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "coupled_vomega_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": null
+    },
+    {
+      "name": "docking",
+      "run_mode": "pose",
+      "ref_type": "posref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "docking_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": null
+    },
+    {
+      "name": "multisine_75percent_cap",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "multisine_75percent_cap_mu_0p3.toml",
+      "combo_idx": 1,
+      "mu": 0.3,
+      "pose_fix_tier": null
+    },
+    {
+      "name": "octagon",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "octagon_mu_0p3.toml",
+      "combo_idx": 2,
+      "mu": 0.3,
+      "pose_fix_tier": null
+    },
+    {
+      "name": "spin_creep",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spin_creep_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": "docking"
+    },
+    {
+      "name": "spiral_orbit",
+      "run_mode": "velocity",
+      "ref_type": "velref",
+      "config_dir": "trajectory_files_run_0p5_main",
+      "profile_toml": "spiral_orbit_mu_0p5.toml",
+      "combo_idx": 1,
+      "mu": 0.5,
+      "pose_fix_tier": null
+    }
+  ]
+}

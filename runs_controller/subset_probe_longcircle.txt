@@ -1,0 +1,18 @@
+==================== long_circle [velocity]  (offset = max(Vy_rms mm/s, ω_rms mrad/s)) ====================
+  combo 52  : peakSpd=0.5   peak|ω|=0.17  → Vy_rms=1.1   mm/s  ω_rms=0.7mrad/s
+  combo 254 : peakSpd=1.0   peak|ω|=0.12  → Vy_rms=0.7   mm/s  ω_rms=34.1mrad/s
+  combo 136 : peakSpd=1.0   peak|ω|=0.12  → Vy_rms=0.6   mm/s  ω_rms=34.8mrad/s
+  combo 237 : peakSpd=1.5   peak|ω|=0.09  → Vy_rms=3.0   mm/s  ω_rms=63.7mrad/s
+  combo 170 : peakSpd=1.0   peak|ω|=0.2   → Vy_rms=1.3   mm/s  ω_rms=71.1mrad/s
+  combo 153 : peakSpd=1.0   peak|ω|=0.2   → Vy_rms=1.3   mm/s  ω_rms=72.3mrad/s
+  combo 203 : peakSpd=1.5   peak|ω|=0.12  → Vy_rms=1.9   mm/s  ω_rms=79.4mrad/s
+  combo 68  : peakSpd=2.0   peak|ω|=0.25  → Vy_rms=1.5   mm/s  ω_rms=133.2mrad/s
+  combo 1   : peakSpd=1.0   peak|ω|=0.5   → Vy_rms=3.0   mm/s  ω_rms=178.2mrad/s
+  combo 119 : peakSpd=2.0   peak|ω|=0.4   → Vy_rms=1.0   mm/s  ω_rms=205.0mrad/s
+  combo 220 : peakSpd=1.0   peak|ω|=0.67  → Vy_rms=3.6   mm/s  ω_rms=206.8mrad/s
+  combo 187 : peakSpd=1.0   peak|ω|=0.67  → Vy_rms=2.3   mm/s  ω_rms=206.9mrad/s
+  combo 18  : peakSpd=1.5   peak|ω|=0.5   → Vy_rms=0.8   mm/s  ω_rms=217.7mrad/s
+  combo 85  : peakSpd=1.0   peak|ω|=0.67  → Vy_rms=3.8   mm/s  ω_rms=225.0mrad/s
+  combo 35  : peakSpd=1.5   peak|ω|=0.5   → Vy_rms=0.9   mm/s  ω_rms=233.5mrad/s
+  combo 102 : peakSpd=1.0   peak|ω|=0.67  → Vy_rms=2.6   mm/s  ω_rms=245.9mrad/s
+

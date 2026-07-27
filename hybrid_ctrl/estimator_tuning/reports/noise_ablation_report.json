@@ -1,0 +1,78 @@
+{
+  "estimator": "eskf",
+  "seed": 44,
+  "eval_seed": 44,
+  "data_dir": "../data/Simulation_Data_MecanumSlipSpin_LugreAdamov",
+  "noise_model": {
+    "odo": "10 mm/s white + 2 % scale-factor + ~5 mm/s per-axis bias",
+    "gyro": "3 mrad/s white + 0.5 % scale-factor + 3 mrad/s constant bias",
+    "pose_fix": "2 cm white + 1 cm constant bias",
+    "heading_fix": "10 mrad white + 5 mrad constant bias"
+  },
+  "units": {
+    "vel_rmse": "m/s",
+    "rate_rmse": "rad/s",
+    "pos_rmse": "m",
+    "heading_rmse": "rad",
+    "score": "dimensionless"
+  },
+  "training_averages": {
+    "baseline": {
+      "vel_rmse": 0.020285,
+      "rate_rmse": 0.023870,
+      "pos_rmse": 0.015845,
+      "heading_rmse": 0.017392,
+      "score": 50.819317
+    },
+    "realistic_noise": {
+      "vel_rmse": 0.024042,
+      "rate_rmse": 0.019768,
+      "pos_rmse": 0.038865,
+      "heading_rmse": 0.018523,
+      "score": 63.517807
+    },
+    "degradation": {
+      "vel_rmse": 0.003757,
+      "rate_rmse": -0.004102,
+      "pos_rmse": 0.023020,
+      "heading_rmse": 0.001131,
+      "score": 12.698490
+    }
+  },
+  "validation_long_circle_combo1": {
+    "baseline": {
+      "vel_rmse": 0.018619,
+      "rate_rmse": 0.014339,
+      "pos_rmse": 0.127333,
+      "heading_rmse": 0.044064,
+      "score": 58.3453
+    },
+    "realistic_noise": {
+      "vel_rmse": 0.018518,
+      "rate_rmse": 0.013645,
+      "pos_rmse": 0.106625,
+      "heading_rmse": 0.045439,
+      "score": 55.6811
+    },
+    "degradation": {
+      "vel_rmse": -0.000101,
+      "rate_rmse": -0.000694,
+      "pos_rmse": -0.020708,
+      "heading_rmse": 0.001374,
+      "score": -2.6642
+    }
+  },
+  "per_profile": [
+    {"name": "coupled_vomega", "combo": 1, "baseline_vel_rmse": 0.035281, "noisy_vel_rmse": 0.051013, "baseline_rate_rmse": 0.016665, "noisy_rate_rmse": 0.014441, "baseline_pos_rmse": 0.016020, "noisy_pos_rmse": 0.038840, "baseline_heading_rmse": 0.009566, "noisy_heading_rmse": 0.010728, "baseline_score": 87.47, "noisy_score": 129.89},
+    {"name": "coupled_vomega", "combo": 2, "baseline_vel_rmse": 0.015395, "noisy_vel_rmse": 0.017117, "baseline_rate_rmse": 0.016436, "noisy_rate_rmse": 0.014732, "baseline_pos_rmse": 0.016017, "noisy_pos_rmse": 0.038800, "baseline_heading_rmse": 0.009567, "noisy_heading_rmse": 0.010724, "baseline_score": 39.27, "noisy_score": 44.45},
+    {"name": "long_circle", "combo": 2, "baseline_vel_rmse": 0.005325, "noisy_vel_rmse": 0.011714, "baseline_rate_rmse": 0.016144, "noisy_rate_rmse": 0.014867, "baseline_pos_rmse": 0.015853, "noisy_pos_rmse": 0.038673, "baseline_heading_rmse": 0.009734, "noisy_heading_rmse": 0.010806, "baseline_score": 15.10, "noisy_score": 30.61},
+    {"name": "long_circle", "combo": 3, "baseline_vel_rmse": 0.007504, "noisy_vel_rmse": 0.009972, "baseline_rate_rmse": 0.009552, "noisy_rate_rmse": 0.009082, "baseline_pos_rmse": 0.014307, "noisy_pos_rmse": 0.037339, "baseline_heading_rmse": 0.008471, "noisy_heading_rmse": 0.010214, "baseline_score": 19.88, "noisy_score": 27.66},
+    {"name": "octagon", "combo": 1, "baseline_vel_rmse": 0.027724, "noisy_vel_rmse": 0.029005, "baseline_rate_rmse": 0.036324, "noisy_rate_rmse": 0.034687, "baseline_pos_rmse": 0.016423, "noisy_pos_rmse": 0.039889, "baseline_heading_rmse": 0.088736, "noisy_heading_rmse": 0.088884, "baseline_score": 76.81, "noisy_score": 82.76},
+    {"name": "octagon", "combo": 2, "baseline_vel_rmse": 0.023565, "noisy_vel_rmse": 0.025247, "baseline_rate_rmse": 0.045448, "noisy_rate_rmse": 0.028119, "baseline_pos_rmse": 0.016436, "noisy_pos_rmse": 0.039926, "baseline_heading_rmse": 0.010140, "noisy_heading_rmse": 0.011268, "baseline_score": 60.16, "noisy_score": 65.15},
+    {"name": "spin_creep", "combo": 1, "baseline_vel_rmse": 0.038026, "noisy_vel_rmse": 0.038839, "baseline_rate_rmse": 0.014091, "noisy_rate_rmse": 0.015543, "baseline_pos_rmse": 0.015897, "noisy_pos_rmse": 0.038767, "baseline_heading_rmse": 0.009511, "noisy_heading_rmse": 0.010690, "baseline_score": 83.71, "noisy_score": 98.64},
+    {"name": "spin_creep", "combo": 2, "baseline_vel_rmse": 0.036800, "noisy_vel_rmse": 0.037528, "baseline_rate_rmse": 0.011631, "noisy_rate_rmse": 0.015210, "baseline_pos_rmse": 0.015702, "noisy_pos_rmse": 0.038590, "baseline_heading_rmse": 0.009649, "noisy_heading_rmse": 0.010773, "baseline_score": 84.44, "noisy_score": 99.50},
+    {"name": "spiral_orbit", "combo": 1, "baseline_vel_rmse": 0.006435, "noisy_vel_rmse": 0.009691, "baseline_rate_rmse": 0.036428, "noisy_rate_rmse": 0.025367, "baseline_pos_rmse": 0.015896, "noisy_pos_rmse": 0.038910, "baseline_heading_rmse": 0.009271, "noisy_heading_rmse": 0.010570, "baseline_score": 20.27, "noisy_score": 27.61},
+    {"name": "spiral_orbit", "combo": 2, "baseline_vel_rmse": 0.006793, "noisy_vel_rmse": 0.010293, "baseline_rate_rmse": 0.035978, "noisy_rate_rmse": 0.025630, "baseline_pos_rmse": 0.015896, "noisy_pos_rmse": 0.038911, "baseline_heading_rmse": 0.009271, "noisy_heading_rmse": 0.010570, "baseline_score": 21.09, "noisy_score": 28.90},
+    {"name": "long_circle", "combo": 1, "is_validation": true, "baseline_vel_rmse": 0.018619, "noisy_vel_rmse": 0.018518, "baseline_rate_rmse": 0.014339, "noisy_rate_rmse": 0.013645, "baseline_pos_rmse": 0.127333, "noisy_pos_rmse": 0.106625, "baseline_heading_rmse": 0.044064, "noisy_heading_rmse": 0.045439, "baseline_score": 58.35, "noisy_score": 55.68}
+  ]
+}

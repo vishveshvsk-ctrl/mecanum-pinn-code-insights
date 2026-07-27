@@ -1,0 +1,15 @@
+[profile]
+builder = "docking"
+
+    [profile.params]
+    x_start = 0.0
+    y_start = 0.0
+    psi_start_deg = 0.0
+    x_target = -1.0
+    y_target = -0.5
+    psi_target_deg = 0.0
+    T_approach = 5.0
+    T_hold = 5.0
+
+    [profile.sweep]
+    # no sweep

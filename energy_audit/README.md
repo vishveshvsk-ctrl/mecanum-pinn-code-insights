@@ -43,7 +43,7 @@ already include the DYi correction).
    cause: `EOM_CONVENTION = "ne_rhs_v1_mz_dropped"` — the spin friction
    torque `Mz_i` is deliberately omitted from the platform yaw balance
    (`RHS2` in datastore.jl:180 and notebook Cell 22). Solver choice
-   (TRBDF2 / Rodas5P / QNDF / FBDF) does NOT help: at `reltol 1e-9` the
+   (FBDF / Rodas5P / QNDF) does NOT help: at `reltol 1e-9` the
    trajectory is already converged; the residual lives in the RHS, not the
    integrator.
 

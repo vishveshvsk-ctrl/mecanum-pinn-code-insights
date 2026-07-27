@@ -45,12 +45,27 @@ from . import physics_v2hy3 as P
 from .config_v2 import W_SUP_MIN
 from .config_v2hy3_gammakin import ObserverConfigV2Hy3GammaKin
 from .losses_v2hy3 import (physics_loss_hy3, derived_contact_slip,
-                           slip_consistency_loss)
+                           slip_consistency_loss, slip_consistency_loss_log)
 from .models_v2hy3 import build_model_v2hy3, load_warm_start_v2hy3
 # Unchanged machinery — imported, never re-implemented.
 from .training_v2hy3 import (_cfg_dict, _phys_batch, _resolve_precision,
                              _new_scheduler, _gradnorm_step, _cosine_conflict,
                              _first_non_grounding, _ckpt_path, _best_ckpt_path)
+
+
+def _slip_loss_gk(v_slip: torch.Tensor, vpm_true: torch.Tensor,
+                  cfg: ObserverConfigV2Hy3GammaKin) -> torch.Tensor:
+    """Dispatch the slip-consistency loss by cfg.slip_loss_kind.
+
+    Lives HERE, in the gammakin variant, so `losses_v2hy3.slip_consistency_loss`
+    stays byte-for-byte untouched for `training_v2hy3.py` (the non-gammakin
+    baseline) and for reruns of _noslip/_slip02/_wslip1. Defaults to "mse", so a
+    config without the field behaves exactly as before.
+    """
+    if getattr(cfg, "slip_loss_kind", "mse") == "log":
+        return slip_consistency_loss_log(v_slip, vpm_true,
+                                         getattr(cfg, "slip_log_eps", 0.01))
+    return slip_consistency_loss(v_slip, vpm_true, cfg.vpm_scale)
 
 
 def _phase_plan_gk(cfg: ObserverConfigV2Hy3GammaKin) -> List[Dict[str, object]]:
@@ -149,6 +164,7 @@ def supervised_val_metrics_gk(model, val_loader: DataLoader, device, amp_dtype,
     early-stop / scheduler / best-ckpt, exactly as on the v2hy3 path."""
     model.eval()
     tot = g_sum = dv_sum = slip_sum = grms_sum = 0.0
+    slip_lin_sum = sf_pred_sum = sf_true_sum = 0.0
     nb = 0
     for batch in val_loader:
         Gw = batch["Gw"].to(device); Pw = batch["Pw"].to(device)
@@ -165,20 +181,30 @@ def supervised_val_metrics_gk(model, val_loader: DataLoader, device, amp_dtype,
         l_gamma = (se_dg * supw).mean()
         se_dv = ((dv_hat - y_dv) ** 2).mean(dim=-1)
         total = l_gamma + cfg.w_dv * se_dv.mean()
+        # |Vp| is a deterministic fn of (gamma,dV), so it exists at any w_slip.
+        # This whole fn is @torch.no_grad, so nothing here carries a graph.
+        V_hat = Gw[:, -1, :2] * vhat_scale_t
+        v_slip = derived_contact_slip(gh_norm, dv_hat, V_hat, phys, cfg,
+                                      gamma_std_t, gamma_mean_t)
+        vpm_true = batch["slip_mag"].to(device)
         if cfg.w_slip > 0.0:
-            V_hat = Gw[:, -1, :2] * vhat_scale_t
-            v_slip = derived_contact_slip(gh_norm, dv_hat, V_hat, phys, cfg,
-                                          gamma_std_t, gamma_mean_t)
-            l_slip = slip_consistency_loss(v_slip, batch["slip_mag"].to(device),
-                                           cfg.vpm_scale)
+            l_slip = _slip_loss_gk(v_slip, vpm_true, cfg)
             slip_sum += float(l_slip)
             total = total + cfg.w_slip * l_slip
+        # ALWAYS log the LINEAR slip loss, whatever is being trained: it is the
+        # only slip metric comparable across slip_loss_kind (the log form has no
+        # vpm_scale, so its magnitude is on a different footing entirely).
+        slip_lin_sum += float(slip_consistency_loss(v_slip, vpm_true, cfg.vpm_scale))
+        sf_pred_sum += float((v_slip < cfg.gate_center).float().mean())
+        sf_true_sum += float((vpm_true < cfg.gate_center).float().mean())
         tot += float(total); g_sum += float(se_gp95.mean())
         dv_sum += float(se_dv.mean()); grms_sum += grms
         nb += 1
     nb = max(nb, 1)
     return dict(total=tot / nb, gamma_mse=g_sum / nb, dv_mse=dv_sum / nb,
-                slip_mse=slip_sum / nb, gamma_rmse_phys=grms_sum / nb)
+                slip_mse=slip_sum / nb, slip_mse_lin=slip_lin_sum / nb,
+                sf_pred=sf_pred_sum / nb, sf_true=sf_true_sum / nb,
+                gamma_rmse_phys=grms_sum / nb)
 
 
 @torch.no_grad()
@@ -340,6 +366,7 @@ def train_v2hy3_gammakin(cfg: ObserverConfigV2Hy3GammaKin) -> None:
 
         model.train()
         agg_sup = agg_phys = agg_gamma = agg_dv = agg_slip = agg_grms = 0.0
+        agg_sf_pred = agg_sf_true = agg_slip_lin = 0.0
         agg_wg = agg_wd = 0.0
         log_sum: Dict[str, float] = {}
         nb = 0
@@ -383,8 +410,7 @@ def train_v2hy3_gammakin(cfg: ObserverConfigV2Hy3GammaKin) -> None:
             if cfg.w_slip > 0.0:
                 v_slip = derived_contact_slip(gh_norm, dv_hat, V_hat, phys, cfg,
                                               gamma_std_t, gamma_mean_t)
-                l_slip = slip_consistency_loss(v_slip, batch["slip_mag"].to(device),
-                                               cfg.vpm_scale)
+                l_slip = _slip_loss_gk(v_slip, batch["slip_mag"].to(device), cfg)
                 l_sup = l_sup + cfg.w_slip * l_slip
                 agg_slip += float(l_slip.detach())
                 slip_task = l_slip           # has grad -> usable as a cosine task
@@ -392,9 +418,28 @@ def train_v2hy3_gammakin(cfg: ObserverConfigV2Hy3GammaKin) -> None:
                 with torch.no_grad():
                     v_slip = derived_contact_slip(gh_norm, dv_hat, V_hat, phys, cfg,
                                                   gamma_std_t, gamma_mean_t)
-                    l_slip = slip_consistency_loss(v_slip, batch["slip_mag"].to(device),
-                                                   cfg.vpm_scale)
+                    l_slip = _slip_loss_gk(v_slip, batch["slip_mag"].to(device), cfg)
                 agg_slip += float(l_slip)
+
+            # Gate calibration + a CROSS-KIND-COMPARABLE slip metric, tracked
+            # EVERY epoch (incl. grounding, where the physics path never runs and
+            # g_stick_frac is therefore absent). These are what the log-slip
+            # redesign is judged on, so they must not appear only once physics
+            # engages. v_slip is already computed above at any w_slip, so this is
+            # a free reduction -- detach first, a grad-tracked comparison would
+            # retain the graph and blow VRAM (the w_slip=0 no_grad lesson).
+            with torch.no_grad():
+                _vs = v_slip.detach()
+                _vt = batch["slip_mag"].to(device)
+                agg_sf_pred += float((_vs < cfg.gate_center).float().mean())
+                agg_sf_true += float((_vt < cfg.gate_center).float().mean())
+                # DETACHED LINEAR slip loss, logged whatever is being trained.
+                # w_slip is not comparable across kinds (the log form carries no
+                # vpm_scale), so this is the only slip number that can be read
+                # across slipLOG and _noslip/_slip02/_wslip1. Uses the untouched
+                # baseline fn, so it is the same arithmetic those runs logged.
+                agg_slip_lin += float(
+                    slip_consistency_loss(_vs, _vt, cfg.vpm_scale))
 
             if diag_on and nb < cfg.cosine_diag_batches:
                 _tasks = {"gamma": L_gamma, "dv": L_dv}
@@ -457,15 +502,29 @@ def train_v2hy3_gammakin(cfg: ObserverConfigV2Hy3GammaKin) -> None:
                             f"stick_frac {log_sum.get('g_stick_frac',0.)/nb:.3f})")
         sup_str = (f"g_mse {agg_gamma/nb:.5f} g_rmse {agg_grms/nb:.3f}rad/s "
                    f"dv_mse {agg_dv/nb:.5f}")
-        sup_str += f" slip_rmse {((agg_slip/nb) ** 0.5) * cfg.vpm_scale:.4f}m/s"
+        # slip_rmse is ALWAYS the detached LINEAR loss -> identical definition to
+        # the _noslip/_slip02/_wslip1 logs, so the column is comparable across
+        # slip_loss_kind. The trained log objective is reported separately; its
+        # magnitude is NOT comparable to anything the linear runs logged.
+        sup_str += f" slip_rmse {((agg_slip_lin/nb) ** 0.5) * cfg.vpm_scale:.4f}m/s"
+        if getattr(cfg, "slip_loss_kind", "mse") == "log":
+            sup_str += (f" slip_log {agg_slip/nb:.5f}"
+                        f"(e{getattr(cfg, 'slip_log_eps', 0.01):g})")
         if cfg.w_slip == 0.0:
             sup_str += "(untrained)"
+        # Gate calibration every epoch: predicted vs true stick fraction and the
+        # signed relative error that the log-slip redesign is judged on.
+        _sfp, _sft = agg_sf_pred / nb, agg_sf_true / nb
+        _err = (_sfp - _sft) / _sft * 100.0 if _sft > 0 else float("nan")
+        sup_str += f" | sf {_sfp:.4f} vs true {_sft:.4f} ({_err:+.1f}%)"
         grnd_str = ""
         if sup_val is not None:
             grnd_str = (f" | val sup {sup_val:.5f} g_mse {svm['gamma_mse']:.5f} "
                         f"g_rmse {svm['gamma_rmse_phys']:.3f}rad/s dv_mse {svm['dv_mse']:.5f}")
-            if cfg.w_slip > 0.0:
-                grnd_str += f" slip_rmse {(svm['slip_mse'] ** 0.5) * cfg.vpm_scale:.4f}m/s"
+            grnd_str += (f" slip_rmse {(svm['slip_mse_lin'] ** 0.5) * cfg.vpm_scale:.4f}m/s"
+                         f" sf {svm['sf_pred']:.4f}/{svm['sf_true']:.4f}")
+            if cfg.w_slip > 0.0 and getattr(cfg, "slip_loss_kind", "mse") == "log":
+                grnd_str += f" slip_log {svm['slip_mse']:.5f}"
 
         if diag_on and diag_recs:
             keys = list(diag_recs[0].keys())

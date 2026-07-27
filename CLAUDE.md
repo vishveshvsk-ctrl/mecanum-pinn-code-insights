@@ -86,6 +86,7 @@ See **[PROJECT_LAYOUT.md](PROJECT_LAYOUT.md)** for the complete current file hie
 
 ## Quick conventions
 
+- **NEVER search files in the parent `mecanum_pinn_head/` folder** — it contains `data/` (~275 GB, ~22k files); recursive `find`/`grep`/`Glob` there hangs. **Scope ALL file searches to the `code_insights/` working directory** (e.g. `Glob(path="…/code_insights", …)`, `grep`/`rg` with an explicit `code_insights` path). Never let a search walk up into `../data/`.
 - **Temp files go in `code_insights/_tmp/`** — never scatter in project root
 - **Never write data to code_insights/**; it all goes in `../data/`
 - **Long sweeps need keep_awake.py** running in background (Modern Standby kills idle compute)
