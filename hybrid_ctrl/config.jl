@@ -12,7 +12,7 @@ Single source of truth for which controller/estimator blocks are active and at
 what rates.  All discrete callbacks are gated by the Boolean flags.
 
   tracking   :: :pose or :velocity
-  estimator  :: :kalman, :smo, or :none
+  estimator  :: :kalman, :kalman_imm, :smo, or :none
   use_dhat   :: add SMO disturbance feedforward (requires estimator==:smo)
   use_asmc   :: enable adaptive sliding-mode controller
   use_mpc    :: enable QP-MPC controller
@@ -32,6 +32,8 @@ Base.@kwdef struct HybridConfig
     use_pid::Bool         = false
     fuzzy::Bool           = false
     fixed_weights::NTuple{3,Float64} = (1.0, 0.0, 0.0)
+    use_pose_fix::Bool    = false
+    pose_fix_tier::Symbol = :transit
     f_est::Float64        = 1000.0
     f_mpc::Float64        = 100.0
     f_pid::Float64        = 100.0
