@@ -71,7 +71,7 @@ Each run writes a **JLD2 sidecar** with full state, params, ASMC config, `cfg`, 
 |---|---|
 | Config dir | `trajectory_files_run_*` variants |
 | Output dir | `../data/Simulation_Data_MecanumSlipSpin_LugreAdamov` |
-| Solver | `TRBDF2`, `reltol 1e-8`, `dtmax 1e-3`, `saveat 2000 Hz` |
+| Solver | `FBDF`, `reltol 1e-9`, `dtmax 1e-3`, `saveat 2000 Hz` |
 | Sweep seed | `1234` (must match across resume passes) |
 | Per-solve timeout | 300 s |
 | DOB | super-twisting, yaw-only (`omega_o_psi = 6π`, `k1_psi = 15`, `k2_psi = 80`) |
