@@ -1,0 +1,7 @@
+{
+"train": [
+"coupled_vomega_c001_mu_0.3_case1_lugre_adamov_chi_0.005.arrow"
+],
+"val": [],
+"test": []
+}
