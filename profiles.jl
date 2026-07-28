@@ -252,11 +252,13 @@ end
 # orbit itself supplies the heading content.
 # =============================================================================
 function build_long_circle(cfg)::VelRef
-    R    = get(cfg, "R", 1.0)                 # orbit radius [m]
-    worb = get(cfg, "worbit", 0.5)            # orbital rate [rad/s] ⇒ steady |V| = R·worbit
-    psi0 = _deg(get(cfg, "psi0_deg", 0.0))    # heading offset added to orbit angle [rad]
-    Tw   = get(cfg, "Twarp", 3.0)             # orbit speed warm-up (0 → worbit)
-    nlap = get(cfg, "n_laps", 2)              # number of full revolutions after warm-up
+    R       = get(cfg, "R", 1.0)                 # orbit radius [m]
+    worb    = get(cfg, "worbit", 0.5)            # orbital rate [rad/s] ⇒ steady |V| = R·worbit
+    psi0    = _deg(get(cfg, "psi0_deg", 0.0))    # heading offset added to orbit angle [rad]
+    Tw      = get(cfg, "Twarp", 3.0)             # orbit speed warm-up (0 → worbit)
+    nlap    = get(cfg, "n_laps", 2)              # number of full revolutions after warm-up
+    axis    = lowercase(string(get(cfg, "drive_axis", "x")))   # "x" = tangent, "y" = lateral
+    vscale  = Float64(get(cfg, "v_scale", 1.0))  # scale lateral speed when axis == "y"
 
     # orbit angle φ(t): speed ramps 0 → worb over Tw (C² via _g), then constant.
     phi(t) = worb * Tw * _g(t / Tw)
@@ -271,11 +273,14 @@ function build_long_circle(cfg)::VelRef
     Ttot = Tw + 2pi * nlap / wa
 
     # heading is the orbit tangent angle (PRIMARY); Wz = φ̇, al = φ̈ via ForwardDiff.
-    fpsi(t) = psi0 + phi(t)
-    # body velocity: drive straight ahead at the instantaneous orbit speed R·φ̇.
-    # Vx tied to ψ_des through R (Vx = R·Wz), Vy ≡ 0. Consistent by construction.
-    fVx(t)  = R * ForwardDiff.derivative(phi, t)
-    fVy(t)  = zero(t)
+    # Two body-frame drive modes:
+    #   "x" — tangent drive:  Vx = R·φ̇, Vy = 0, ψ = ψ0 + φ
+    #   "y" — lateral drive:  Vx = 0, Vy = vscale·R·φ̇, ψ = ψ0 + φ − π/2
+    #         (the heading is rotated −90° so the body y-axis points tangent to the orbit).
+    axis in ("x", "y") || error("long_circle: drive_axis must be 'x' or 'y', got '$axis'")
+    fpsi(t) = psi0 + phi(t) + (axis == "y" ? -pi/2 : 0.0)
+    fVx(t)  = axis == "y" ? zero(t) : R * ForwardDiff.derivative(phi, t)
+    fVy(t)  = axis == "y" ? vscale * R * ForwardDiff.derivative(phi, t) : zero(t)
 
     kinks = [Tw]
     _velref(fVx, fVy, fpsi, kinks, Ttot)
