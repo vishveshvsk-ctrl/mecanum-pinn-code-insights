@@ -568,8 +568,9 @@ function build_spiral_orbit(cfg)::VelRef
     Hmin  = _deg(get(cfg, "min_heading_deg", 540.0))
     atan_cap  = get(cfg, "a_tan_cap", 1.5)
     alpha_cap = get(cfg, "alpha_cap", 0.5)
-    psi0  = _deg(get(cfg, "psi0_deg", 0.0))
-    delta = _deg(get(cfg, "delta_deg", 0.0))   # heading offset relative to spiral tangent
+    psi0   = _deg(get(cfg, "psi0_deg", 0.0))
+    delta  = _deg(get(cfg, "delta_deg", 0.0))   # heading offset relative to spiral tangent
+    vscale = Float64(get(cfg, "v_scale", 1.0))  # scale speed magnitude (envelope guard)
 
     cd = cos(delta);  sd = sin(delta)
 
@@ -608,11 +609,11 @@ function build_spiral_orbit(cfg)::VelRef
         error("spiral_orbit: mode must be \"om_const\", \"v_const\", or \"iso_accel\", got \"$mode\"")
     end
 
-    # Rotate the tangent speed into the body frame by delta.
-    # delta = 0  ⇒ tangent drive (Vx = Vmag, Vy = 0)
-    # delta = 90°⇒ lateral drive (Vx = 0, Vy = Vmag)
-    fVx(t)  = Vmag(t) * cd
-    fVy(t)  = Vmag(t) * sd
+    # Rotate the tangent speed into the body frame by delta and scale by vscale.
+    # delta = 0  ⇒ tangent drive (Vx = vscale·Vmag, Vy = 0)
+    # delta = 90°⇒ lateral drive (Vx = 0, Vy = vscale·Vmag)
+    fVx(t)  = vscale * Vmag(t) * cd
+    fVy(t)  = vscale * Vmag(t) * sd
     fpsi(t) = psi_tan(t) + delta
     return _velref(fVx, fVy, fpsi, [Tw, Tw + Tsw], Ttot)
 end
