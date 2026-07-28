@@ -569,6 +569,9 @@ function build_spiral_orbit(cfg)::VelRef
     atan_cap  = get(cfg, "a_tan_cap", 1.5)
     alpha_cap = get(cfg, "alpha_cap", 0.5)
     psi0  = _deg(get(cfg, "psi0_deg", 0.0))
+    delta = _deg(get(cfg, "delta_deg", 0.0))   # heading offset relative to spiral tangent
+
+    cd = cos(delta);  sd = sin(delta)
 
     if mode == "om_const"
         Om = _req(cfg, "Om");  R0 = _req(cfg, "R0");  R1 = _req(cfg, "R1")
@@ -577,39 +580,41 @@ function build_spiral_orbit(cfg)::VelRef
         Tsw = max(1.875 * wa * abs(R1 - R0) / atan_cap,
                   Hmin / wa - Tw / 2 - Ttail, 4.0)
         Ttot = Tw + Tsw + Ttail
-        Rfun(t)   = R0 + (R1 - R0) * _S(_sat((t - Tw) / Tsw))
-        fVx_o(t)  = wa * _S(_sat(t / Tw)) * Rfun(t)       # forward: |Ω|·R(t)
-        fVy_o(t)  = zero(t)
-        fpsi_o(t) = psi0 + Om * Tw * _g(t / Tw)           # ψ̇ = Om·_S ramp → const
-        return _velref(fVx_o, fVy_o, fpsi_o, [Tw, Tw + Tsw], Ttot)
+        Rfun(t) = R0 + (R1 - R0) * _S(_sat((t - Tw) / Tsw))
+        Vmag    = t -> wa * _S(_sat(t / Tw)) * Rfun(t)       # |Ω|·R(t)
+        psi_tan = t -> psi0 + Om * Tw * _g(t / Tw)           # ψ̇ = Om·_S ramp → const
     elseif mode == "v_const" || mode == "iso_accel"
         Om0 = _req(cfg, "Om0");  Om1 = _req(cfg, "Om1")
         (abs(Om0) > 0 && sign(Om0) == sign(Om1)) ||
             error("spiral_orbit: Om0, Om1 must be nonzero and same-signed (no Ω zero-crossing)")
-        s   = sign(Om0)
         dOm = Om1 - Om0
         Tsw = max(1.875 * abs(dOm) / alpha_cap,
                   (Hmin - abs(Om0) * Tw / 2 - abs(Om1) * Ttail) / (0.5 * abs(Om0 + Om1)),
                   4.0)
         Ttot = Tw + Tsw + Ttail
-        omega(t)  = Om0 * _S(_sat(t / Tw)) + dOm * _S(_sat((t - Tw) / Tsw))
-        fpsi_s(t) = psi0 + Om0 * Tw * _g(t / Tw) + dOm * Tsw * _g((t - Tw) / Tsw)
-        fVy_s(t)  = zero(t)
+        omega   = t -> Om0 * _S(_sat(t / Tw)) + dOm * _S(_sat((t - Tw) / Tsw))
+        psi_tan = t -> psi0 + Om0 * Tw * _g(t / Tw) + dOm * Tsw * _g((t - Tw) / Tsw)
         if mode == "v_const"
             Vc = _req(cfg, "Vc");  Vc > 0 || error("spiral_orbit: Vc must be positive")
-            fVx_v(t) = Vc * _S(_sat(t / Tw))
-            return _velref(fVx_v, fVy_s, fpsi_s, [Tw, Tw + Tsw], Ttot)
+            Vmag = t -> Vc * _S(_sat(t / Tw))
         else
             u = _req(cfg, "ustar");  u > 0 || error("spiral_orbit: ustar must be positive")
             R0i = u / Om0^2                               # initial circle radius
             # warm-up rides the initial circle (utilization ramps 0→u* with Ω²);
             # after Tw, V = u*/|Ω| holds u* exactly. C² at the joint: Ω̇(Tw±)=0.
-            fVx_i(t) = t <= Tw ? s * omega(t) * R0i : u / (s * omega(t))
-            return _velref(fVx_i, fVy_s, fpsi_s, [Tw, Tw + Tsw], Ttot)
+            Vmag = t -> t <= Tw ? abs(omega(t)) * R0i : u / abs(omega(t))
         end
     else
         error("spiral_orbit: mode must be \"om_const\", \"v_const\", or \"iso_accel\", got \"$mode\"")
     end
+
+    # Rotate the tangent speed into the body frame by delta.
+    # delta = 0  ⇒ tangent drive (Vx = Vmag, Vy = 0)
+    # delta = 90°⇒ lateral drive (Vx = 0, Vy = Vmag)
+    fVx(t)  = Vmag(t) * cd
+    fVy(t)  = Vmag(t) * sd
+    fpsi(t) = psi_tan(t) + delta
+    return _velref(fVx, fVy, fpsi, [Tw, Tw + Tsw], Ttot)
 end
 
 # =============================================================================
