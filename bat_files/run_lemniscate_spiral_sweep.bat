@@ -18,14 +18,10 @@ for %%D in (%MU_DIRS%) do (
     set CFG=%%D
     for /f "tokens=4 delims=_" %%M in ("%%D") do set MU=%%M
     echo.
-    echo [%date% %time%] Running config dir: %%D  (mu = !MU!)
-    "%JULIA%" --project=. -t 8 Data_Generation_Julia.jl ^
-        --config-dir %%D ^
-        --profiles lemniscate_flat_mu_!MU!.toml,spiral_orbit_mu_!MU!.toml ^
-        --timeout 300 ^
-        --progress-interval 60
+    echo [%date% %time%] Running config dir: !CFG!  [mu=!MU!]
+    "%JULIA%" --project=. -t 8 Data_Generation_Julia.jl --config-dir !CFG! --profiles lemniscate_flat_mu_!MU!.toml,spiral_orbit_mu_!MU!.toml --timeout 300 --progress-interval 60
     if errorlevel 1 (
-        echo [%date% %time%] FAILED in %%D
+        echo [%date% %time%] FAILED in !CFG!
         exit /b 1
     )
 )
