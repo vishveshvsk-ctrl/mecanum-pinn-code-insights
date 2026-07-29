@@ -664,6 +664,229 @@ function build_straightline(cfg)::VelRef
 end
 
 # =============================================================================
+# LEMNISCATE_FLAT — clipped single-lobe lemniscate with a horizontal straight
+# crossbar. The body heading is held fixed (Ω ≡ 0), so the trajectory explores
+# (C,0,0)/(0,C,0) on the crossbar and (A,A,0) on the curved lobe, depending on
+# psi_des_deg. Optional lateral velocity wiggle on the crossbar adds (C,A,0) or
+# (A,C,0) content, analogous to octagon.
+#
+# Path (canonical / world-aligned frame):
+#   1. Crossbar rightward : (-x_c,0) → (x_c,0), rest-to-rest with cruise v_cross
+#   2. Quintic blend up   : (x_c,0) → (x_c, y_c), matched to arc tangent
+#   3. Lemniscate arc     : (x_c,y_c) → (x_c,-y_c) via (a,0), constant dφ/dt
+#   4. Quintic blend down : (x_c,-y_c) → (x_c,0), matched to arc tangent
+#   5. Crossbar leftward  : (x_c,0) → (-x_c,0), rest-to-rest
+# The cycle is repeated n_periods. All segment boundaries are exposed as tstops.
+# =============================================================================
+
+# 2-D quintic Hermite spline: P(0)=P0, P(T)=P1, P'(0)=V0, P'(T)=V1,
+# P''(0)=P''(T)=0. Returns (px,py) closures and their time derivatives.
+function _hermite2d_quintic(P0::AbstractVector, P1::AbstractVector,
+                            V0::AbstractVector, V1::AbstractVector, T::Real)
+    T = Float64(T)
+    x0, y0 = P0[1], P0[2]
+    x1, y1 = P1[1], P1[2]
+    vx0, vy0 = V0[1], V0[2]
+    vx1, vy1 = V1[1], V1[2]
+    # scalar basis evaluated at s = (t-t0)/T; derivatives below are w.r.t. s
+    H0(s)  = 1 - 10s^3 + 15s^4 - 6s^5
+    H1(s)  = 10s^3 - 15s^4 + 6s^5
+    H2(s)  = s - 6s^3 + 8s^4 - 3s^5      # multiplied by T*V0
+    H3(s)  = -4s^3 + 7s^4 - 3s^5         # multiplied by T*V1
+    dH0(s) = -30s^2 + 60s^3 - 30s^4
+    dH1(s) = 30s^2 - 60s^3 + 30s^4
+    dH2(s) = 1 - 18s^2 + 32s^3 - 15s^4
+    dH3(s) = -12s^2 + 28s^3 - 15s^4
+    ddH0(s) = -60s + 180s^2 - 120s^3
+    ddH1(s) = 60s - 180s^2 + 120s^3
+    ddH2(s) = -36s + 96s^2 - 60s^3
+    ddH3(s) = -24s + 84s^2 - 60s^3
+    function make_closures(t0)
+        px(t) = let s = (t - t0) / T
+            x0*H0(s) + x1*H1(s) + T*(vx0*H2(s) + vx1*H3(s))
+        end
+        py(t) = let s = (t - t0) / T
+            y0*H0(s) + y1*H1(s) + T*(vy0*H2(s) + vy1*H3(s))
+        end
+        vx(t) = let s = (t - t0) / T
+            (x0*dH0(s) + x1*dH1(s) + T*(vx0*dH2(s) + vx1*dH3(s))) / T
+        end
+        vy(t) = let s = (t - t0) / T
+            (y0*dH0(s) + y1*dH1(s) + T*(vy0*dH2(s) + vy1*dH3(s))) / T
+        end
+        ax(t) = let s = (t - t0) / T
+            (x0*ddH0(s) + x1*ddH1(s) + T*(vx0*ddH2(s) + vx1*ddH3(s))) / T^2
+        end
+        ay(t) = let s = (t - t0) / T
+            (y0*ddH0(s) + y1*ddH1(s) + T*(vy0*ddH2(s) + vy1*ddH3(s))) / T^2
+        end
+        return px, py, vx, vy, ax, ay
+    end
+    return make_closures
+end
+
+function build_lemniscate_flat(cfg)::VelRef
+    a       = Float64(get(cfg, "a", 1.5))
+    phi_c   = _deg(get(cfg, "phi_c_deg", 45.0))
+    v_cross = Float64(get(cfg, "v_cross", 0.5))
+    T_blend = Float64(get(cfg, "T_blend", 2.5))
+    lat_amp = Float64(get(cfg, "lat_vamp", 0.0))
+    Nwaves  = Int(get(cfg, "n_waves", 0))
+    nper    = Int(get(cfg, "n_periods", 2))
+    psid    = _deg(get(cfg, "psi_des_deg", 0.0))
+    a_cap   = Float64(get(cfg, "a_cap", 0.8))
+
+    a > 0 || error("lemniscate_flat: a must be positive")
+    0 < phi_c < pi/2 || error("lemniscate_flat: phi_c_deg must be in (0,90)")
+    v_cross > 0 || error("lemniscate_flat: v_cross must be positive")
+    T_blend > 0 || error("lemniscate_flat: T_blend must be positive")
+    nper > 0 || error("lemniscate_flat: n_periods must be positive")
+
+    # ---- lemniscate geometry -------------------------------------------------
+    den(phi) = 1 + sin(phi)^2
+    Px(phi)  = a * cos(phi) / den(phi)
+    Py(phi)  = a * sin(phi) * cos(phi) / den(phi)
+    dPx(phi) = -a * sin(phi) * (3 + sin(phi)^2) / den(phi)^2
+    dPy(phi) =  a * cos(phi) * (1 - 3*sin(phi)^2) / den(phi)^2
+    P(phi)   = (Px(phi), Py(phi))
+    dP(phi)  = (dPx(phi), dPy(phi))
+
+    xc = Px(phi_c)
+    yc = Py(phi_c)
+    Lc = 2 * xc                       # crossbar length (between -x_c and +x_c)
+
+    # ---- arc traversal rate: satisfy speed and acceleration caps -------------
+    n_sample = 500
+    d1max = 0.0
+    d2max = 0.0
+    for k in 1:n_sample
+        phi = -phi_c + 2*phi_c * (k - 1) / (n_sample - 1)
+        d1 = sqrt(dPx(phi)^2 + dPy(phi)^2)
+        # second derivative by finite difference of analytic first derivative
+        h = 1e-6
+        d2x = (dPx(phi + h) - dPx(phi - h)) / (2h)
+        d2y = (dPy(phi + h) - dPy(phi - h)) / (2h)
+        d2 = sqrt(d2x^2 + d2y^2)
+        d1max = max(d1max, d1)
+        d2max = max(d2max, d2)
+    end
+    omega_v = v_cross / d1max
+    omega_a = sqrt(a_cap / d2max)
+    omega   = min(omega_v, omega_a)
+    T_arc   = 2*phi_c / omega
+
+    # arc start/end tangents (arc traversed phi_c -> -phi_c)
+    Varc_start = Float64[-omega * dPx(phi_c), -omega * dPy(phi_c)]
+    Varc_end   = Float64[-omega * dPx(-phi_c), -omega * dPy(-phi_c)]
+
+    # ---- segment durations ---------------------------------------------------
+    # crossbar rest-to-rest: symmetric ramp 0->v_cross->0 limited by a_cap.
+    # _S(s) has max slope 1.875, so peak accel = v_cross*1.875/T_ramp.
+    ramp_dist_needed = v_cross^2 * 1.875 / a_cap   # total distance of both ramps
+    if Lc >= ramp_dist_needed
+        T_ramp = v_cross * 1.875 / a_cap
+        T_cruise = (Lc - 0.5 * v_cross * T_ramp * 2) / v_cross
+        T_cb = 2*T_ramp + T_cruise
+    else
+        # triangular speed profile: does not reach v_cross
+        T_ramp = sqrt(1.875 * Lc / a_cap)
+        v_peak = a_cap * T_ramp / 1.875
+        T_cruise = 0.0
+        T_cb = 2*T_ramp
+        # override cruise speed used in pulse construction
+        v_cross = v_peak
+    end
+    T_period = 2*T_cb + 2*T_blend + T_arc
+    T_total  = nper * T_period
+
+    # ---- crossbar velocity (path x) with optional lateral wiggle (path y) ----
+    function crossbar_speed(t, t0)
+        tu = T_ramp
+        th = max(T_cb - 2*T_ramp, 0.0)
+        td = T_ramp
+        _pulse(t, t0, tu, th, td) * v_cross
+    end
+    function crossbar_wiggle(t, t0)
+        s = (t - t0) / T_cb
+        env = sin(pi * _sat(s))^3
+        lat_amp * env * sin(2pi * Nwaves * s)
+    end
+    body_vx(pvx, pvy) = t -> pvx(t) * cos(psid) + pvy(t) * sin(psid)
+    body_vy(pvx, pvy) = t -> -pvx(t) * sin(psid) + pvy(t) * cos(psid)
+
+    function segment_funcs(t0)
+        segs = []
+        # 1. crossbar rightward (-xc,0) -> (xc,0)
+        vx1(t) = t - t0 <= T_cb ? crossbar_speed(t, t0) : 0.0
+        vy1(t) = t - t0 <= T_cb ? crossbar_wiggle(t, t0) : 0.0
+        push!(segs, (vx1, vy1, t0, t0 + T_cb))
+
+        # 2. blend up (xc,0) -> (xc,yc)
+        t1 = t0 + T_cb
+        mk2 = _hermite2d_quintic([xc, 0.0], [xc, yc], [0.0, 0.0], Varc_start, T_blend)
+        px2, py2, vx2, vy2, ax2, ay2 = mk2(t1)
+        push!(segs, (vx2, vy2, t1, t1 + T_blend))
+
+        # 3. lemniscate arc (xc,yc) -> (xc,-yc) via (a,0), phi decreasing
+        t2 = t1 + T_blend
+        vx3(t) = t2 <= t <= t2 + T_arc ? -omega * dPx(phi_c - omega * (t - t2)) : 0.0
+        vy3(t) = t2 <= t <= t2 + T_arc ? -omega * dPy(phi_c - omega * (t - t2)) : 0.0
+        push!(segs, (vx3, vy3, t2, t2 + T_arc))
+
+        # 4. blend down (xc,-yc) -> (xc,0)
+        t3 = t2 + T_arc
+        mk4 = _hermite2d_quintic([xc, -yc], [xc, 0.0], Varc_end, [0.0, 0.0], T_blend)
+        px4, py4, vx4, vy4, ax4, ay4 = mk4(t3)
+        push!(segs, (vx4, vy4, t3, t3 + T_blend))
+
+        # 5. crossbar leftward (xc,0) -> (-xc,0)
+        t4 = t3 + T_blend
+        vx5(t) = t4 <= t <= t4 + T_cb ? -crossbar_speed(t, t4) : 0.0
+        vy5(t) = t4 <= t <= t4 + T_cb ? crossbar_wiggle(t, t4) : 0.0
+        push!(segs, (vx5, vy5, t4, t4 + T_cb))
+
+        return segs
+    end
+
+    # ---- assemble full multi-period path velocity closures -------------------
+    all_segs = reduce(vcat, [segment_funcs((p - 1) * T_period) for p in 1:nper])
+
+    function path_vx(t)
+        for seg in all_segs
+            vx, vy, ta, tb = seg
+            if ta <= t <= tb
+                return vx(t)
+            end
+        end
+        return 0.0
+    end
+    function path_vy(t)
+        for seg in all_segs
+            vx, vy, ta, tb = seg
+            if ta <= t <= tb
+                return vy(t)
+            end
+        end
+        return 0.0
+    end
+
+    fVx = body_vx(path_vx, path_vy)
+    fVy = body_vy(path_vx, path_vy)
+    fpsi(t) = psid + zero(t)
+
+    kinks = Float64[]
+    for p in 1:nper
+        t0p = (p - 1) * T_period
+        append!(kinks, [t0p, t0p + T_cb, t0p + T_cb + T_blend,
+                        t0p + T_cb + T_blend + T_arc,
+                        t0p + T_cb + 2*T_blend + T_arc,
+                        t0p + T_period])
+    end
+
+    return _velref(fVx, fVy, fpsi, kinks, T_total)
+end
+
+# =============================================================================
 # Registry + dispatch
 # =============================================================================
 # =============================================================================
@@ -705,6 +928,7 @@ const BUILDERS = Dict{String, Function}(
     "multisine"   => build_multisine,
     "ellipse"     => build_ellipse,
     "straightline"   => build_straightline,     # heading-fixed β-ray (feasibility probe)
+    "lemniscate_flat" => build_lemniscate_flat,  # clipped lemniscate lobe + straight crossbar
     "docking"     => build_docking,             # approach-and-hold PosRef
 )
 
