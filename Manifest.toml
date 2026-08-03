@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "7977fc43687a19cb4b91932626cf351735eed7a0"
+project_hash = "c677e42a20bd6bf7f9d5bc8a2a6b338febc3ecbe"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "bbc22a9a08a0ef6460041086d8a7b27940ed4ffd"
@@ -1481,6 +1481,18 @@ deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 version = "1.12.0"
 
+[[deps.LinearMaps]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "7f6be2e4cdaaf558623d93113d6ddade7b916209"
+uuid = "7a12625a-238d-50fd-b39a-03d52299707e"
+version = "3.11.4"
+weakdeps = ["ChainRulesCore", "SparseArrays", "Statistics"]
+
+    [deps.LinearMaps.extensions]
+    LinearMapsChainRulesCoreExt = "ChainRulesCore"
+    LinearMapsSparseArraysExt = "SparseArrays"
+    LinearMapsStatisticsExt = "Statistics"
+
 [[deps.LinearSolve]]
 deps = ["AMD", "ArrayInterface", "ConcreteStructs", "DocStringExtensions", "EnumX", "GPUArraysCore", "InteractiveUtils", "Krylov", "Libdl", "LinearAlgebra", "MKL_jll", "Markdown", "OpenBLAS_jll", "PrecompileTools", "Preferences", "PureKLU", "RecursiveArrayTools", "Reexport", "SciMLBase", "SciMLLogging", "SciMLOperators", "Setfield", "SparseColumnPivotedQR", "StaticArraysCore"]
 git-tree-sha1 = "70de717540ffc613424866635b99d0c187cf7b59"
@@ -1630,6 +1642,12 @@ version = "1.51.2"
     BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
     CliqueTrees = "60701a23-6482-424a-84db-faee86b9b1f8"
 
+[[deps.MatrixEquations]]
+deps = ["LinearAlgebra", "LinearMaps"]
+git-tree-sha1 = "1e894d9da44f874321bfd2266ebc2b60c04bc9ea"
+uuid = "99c1a7ee-ab34-5fd5-8076-27c950a045f4"
+version = "2.6.2"
+
 [[deps.MaybeInplace]]
 deps = ["ArrayInterface", "LinearAlgebra", "MacroTools"]
 git-tree-sha1 = "54e2fdc38130c05b42be423e90da3bade29b74bd"
@@ -1658,7 +1676,7 @@ uuid = "442fdcdd-2543-5da2-b0f3-8c86c306513e"
 version = "0.3.3"
 
 [[deps.MecanumParallelSweep]]
-deps = ["Arrow", "BlackBoxOptim", "CSV", "CUDA", "DataFrames", "Dates", "DiffEqCallbacks", "DiffEqGPU", "ForwardDiff", "FunctionWrappers", "JLD2", "JSON", "LinearAlgebra", "NBInclude", "OrdinaryDiffEq", "Plots", "Printf", "ProgressMeter", "Random", "Revise", "SciMLBenchmarks", "StaticArrays", "Statistics", "Surrogates", "Symbolics", "TOML"]
+deps = ["Arrow", "BlackBoxOptim", "CSV", "CUDA", "DataFrames", "Dates", "DiffEqCallbacks", "DiffEqGPU", "ForwardDiff", "FunctionWrappers", "JLD2", "JSON", "LinearAlgebra", "NBInclude", "OSQP", "OrdinaryDiffEq", "Plots", "Printf", "ProgressMeter", "Random", "Revise", "SciMLBenchmarks", "StaticArrays", "Statistics", "Surrogates", "Symbolics", "TOML"]
 path = "."
 uuid = "00000000-0000-0000-0000-000000000001"
 version = "0.1.0"
@@ -1727,6 +1745,22 @@ deps = ["ADTypes", "DifferentiationInterface", "FiniteDiff", "LinearAlgebra"]
 git-tree-sha1 = "b3f76b463c7998473062992b246045e6961a074e"
 uuid = "d41bc354-129a-5804-8e4c-c37616107c6c"
 version = "8.0.0"
+
+[[deps.NLopt]]
+deps = ["CEnum", "NLopt_jll"]
+git-tree-sha1 = "624785b15005a0e0f4e462b27ee745dbe5941863"
+uuid = "76087f3c-5699-56af-9a33-bf431cd00edd"
+version = "1.2.1"
+weakdeps = ["MathOptInterface"]
+
+    [deps.NLopt.extensions]
+    NLoptMathOptInterfaceExt = ["MathOptInterface"]
+
+[[deps.NLopt_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "afe9c70ead884bf4cbb887f188d2db6d8f09d49c"
+uuid = "079eb43e-fd8e-5478-9966-2cf3e3edb778"
+version = "2.11.0+0"
 
 [[deps.NVTX]]
 deps = ["JuliaNVTXCallbacks_jll", "Libdl", "NVTX_jll"]

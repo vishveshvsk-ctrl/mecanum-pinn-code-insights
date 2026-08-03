@@ -1,0 +1,28 @@
+sigma_wheel_vel by grade: {'default': 0.00025, 'realistic': 0.004789131426105756}
+P0_scale (frozen ESKF, runs_eskf_noellipse_v2\eskf_dxnes\best_config.json): 0.00941841
+combo 1 (unloaded): dt=2.0ms T=33.8s slip fit tau=0.057s sigma=0.0062 R2=0.89
+combo 2 (unloaded): dt=2.0ms T=33.8s slip fit tau=0.039s sigma=0.0054 R2=0.45
+combo 5 (loaded): dt=2.0ms T=18.3s slip fit tau=0.059s sigma=0.0076 R2=0.94
+combo 6 (loaded): dt=2.0ms T=18.3s slip fit tau=0.023s sigma=0.0057 R2=0.71
+combo 8 (unloaded): dt=2.0ms T=26.1s slip fit tau=0.059s sigma=0.0059 R2=0.78
+combo 9 (loaded): dt=2.0ms T=17.8s slip fit tau=0.071s sigma=0.0091 R2=0.99
+combo 10 (loaded): dt=2.0ms T=17.8s slip fit tau=0.067s sigma=0.0075 R2=0.90
+combo 13 (loaded): dt=2.0ms T=22.4s slip fit tau=0.066s sigma=0.0092 R2=0.98
+combo 19 (unloaded): dt=2.0ms T=38.1s slip fit tau=0.057s sigma=0.0065 R2=0.92
+combo 20 (unloaded): dt=2.0ms T=38.1s slip fit tau=0.039s sigma=0.0053 R2=0.40
+
+Wrote C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights\bound_analysis\reports\bound_summary.csv (80 rows)
+Wrote C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights\bound_analysis\reports\bound_results.npz (400 arrays)
+
+B0 (default grade) achieved-to-bound ratio by trajectory:
+ combo_idx    group   u_peak  sigma_pos_rms  achieved_pos_rms  ratio_achieved_to_bound
+         1 unloaded 0.027826       0.004472          0.015854                 3.545240
+         2 unloaded 0.027826       0.004472          0.015851                 3.544640
+         5   loaded 0.089080       0.004484          0.015219                 3.394239
+         6   loaded 0.089080       0.004484          0.015192                 3.388185
+         8 unloaded 0.049342       0.004476          0.016177                 3.614302
+         9   loaded 0.094593       0.004485          0.015248                 3.399808
+        10   loaded 0.094593       0.004485          0.015277                 3.406325
+        13   loaded 0.074428       0.004479          0.015597                 3.482497
+        19 unloaded 0.043050       0.004470          0.015764                 3.526222
+        20 unloaded 0.043050       0.004470          0.015748                 3.522797
