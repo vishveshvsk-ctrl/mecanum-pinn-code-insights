@@ -129,7 +129,7 @@ end
     slip_rmse_per_axis(log, Hw, data, data_dir)
 
 Compute per-axis signed slip RMSE between the estimated slip `d_hat[1:2]` and
-the true body-frame slip `Hw \ ω_true − v_true` interpolated to the estimator
+the true body-frame slip `Hw \\ ω_true − v_true` interpolated to the estimator
 ticks. Returns `(rmse_x, rmse_y)`.
 """
 function slip_rmse_per_axis(log, Hw, data, data_dir)

@@ -293,7 +293,7 @@ function Main.EstimatorMod.estimator_update!(bus, y, est::ESKFSlipObsEstimatorV2
     end
 
     # --- 3. Wheel + gyro measurement update ---------------------------------
-    H = @SMatrix [1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0;
+    H = @SMatrix [1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0;
                   0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0;
                   0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0]
     e = z - H * SVector{12}(x)
