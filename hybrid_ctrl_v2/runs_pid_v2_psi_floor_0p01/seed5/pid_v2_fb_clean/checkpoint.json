@@ -1,21 +1,21 @@
 {
   "current_gains": {
     "N": 4.0,
-    "lam_inner_y": 0.07077399934012413,
-    "lam_inner_x": 0.085832049094748,
+    "lam_inner_y": 0.07202384472894324,
+    "lam_inner_x": 0.08274010082530107,
     "feedforward": false,
-    "lam_inner_psi": 0.012041557546238488
+    "lam_inner_psi": 0.011763606481517384
   },
   "best_gains": {
     "N": 4.0,
-    "lam_inner_y": 0.07199414682099275,
-    "lam_inner_x": 0.0811236702256441,
+    "lam_inner_y": 0.07199399669186693,
+    "lam_inner_x": 0.08278821168972693,
     "feedforward": false,
-    "lam_inner_psi": 0.011619957838100065
+    "lam_inner_psi": 0.011764717575865525
   },
-  "tier": "screen",
-  "iter": 120,
-  "timestamp": "2026-08-03T13:03:04.365",
-  "current_score": 0.9463870305408868,
-  "best_score": 0.9453048812910259
+  "tier": "full",
+  "iter": 20,
+  "timestamp": "2026-08-03T14:40:21.541",
+  "current_score": 0.9466902216485223,
+  "best_score": 0.9450620043415588
 }
