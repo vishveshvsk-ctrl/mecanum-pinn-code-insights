@@ -1,0 +1,21 @@
+{
+  "current_gains": {
+    "N": 4.0,
+    "lam_inner_y": 0.03558785129481327,
+    "lam_inner_x": 0.07414468052137915,
+    "feedforward": false,
+    "lam_inner_psi": 0.018229039838658607
+  },
+  "best_gains": {
+    "N": 4.0,
+    "lam_inner_y": 0.03682114210872119,
+    "lam_inner_x": 0.08104754426424693,
+    "feedforward": false,
+    "lam_inner_psi": 0.01861825291939575
+  },
+  "tier": "screen",
+  "iter": 80,
+  "timestamp": "2026-08-17T03:36:57.949",
+  "current_score": 0.16301859840264613,
+  "best_score": 0.1622244963948207
+}

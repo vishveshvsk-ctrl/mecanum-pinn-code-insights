@@ -32,6 +32,7 @@ using OSQP
 using MatrixEquations
 
 export MPCControllerV2, PhysicalLimits, capability_wrench, kmax_schedule,
+       SurfaceNoise, eps_from_noise,
        lambda_schedule, decay_parameters, ASMCControllerV2,
        imc_gains, imax_from_measured, vcmd_limits, pose_outer_loop_v2, PIDControllerV2,
        bryson_Q_pose, bryson_R, u_eq_horizon, terminal_cost, DARECache
@@ -286,6 +287,77 @@ function kmax_schedule(lim::PhysicalLimits, V_y::Real, psidot::Real, W_ff::SVect
 end
 
 """
+    kmax_schedule(lim, Vx, Vy, psidot, a_eq) -> SVector{3,Float64}
+
+CONTACT-SIDE variant of the gate above (`kmax_contact_b=true`). Same friction
+circle, same wheel-3 row, same margin; the ONLY change is how the longitudinal
+demand `F_par3` is formed.
+
+WHY. The 4-argument method feeds `W_ff` -- the ASMC's equivalent-control wrench
+-- through `W_ff[1]/R` etc. But (E54)'s `b` is a CONTACT-FORCE balance, and the
+.tex is explicit that the wheel-inertia reflections (`4J_w/R^2`) and the `p1`
+rolling resistance "load the actuator, not the contact"
+(Mecanum_Analytical_Limits_AxisVel_AccelEnvelope.tex, "Bare vs. augmented mass
+-- a circle-vs-torque caution"). `W_ff` carries both. Measured drag coefficients
+entering `F_par3` by the two routes:
+
+    axis      W_ff route        b route (E54)     ratio
+    x         176.00*Vx         0                 entirely spurious
+    y         395.93*Vy         110.0*Vy          3.6x
+    psi        38.23*psidot       2.20*psidot     17.4x
+
+so the spurious draw alone is 35-63 N against a 31.30 N margined circle
+(_tmp/check_e54_units.jl). Consequence, measured over train12
+(_tmp/asmc_kmax_decompose.jl): median |F_par3_ff| is 1.19x the ENTIRE remaining
+budget T, exceeding it on 8/12 trajectories, so `F_avail` is driven negative and
+caught by the degenerate floor 38-67% of ticks -- while wheel-torque saturation
+is 0.0% of ticks and those same trajectories track cleanly. The platform was
+never violating its friction circle; the gate was measuring a quantity that is
+not a contact force.
+
+NOTE the 4-arg docstring's "DOCUMENTED APPROXIMATION" note has this backwards:
+it flags the bare-vs-augmented MASS ratio (1.26-1.31x), calls it second-order,
+and asserts the dominant term `F_perp3` "is exact". Measured, `F_perp3` consumes
+24% of the circle at the median while this term consumes 119% of what remains.
+The mass ratio is the small half of the discrepancy; the drag terms are the large
+half and were never checked.
+
+NOT CHANGED HERE (deliberately, to keep this correction isolated): the magnitude
+subtraction `- abs(F_par3)`, which is direction-blind and separately conservative;
+the `alloc_ratio` conversion; the degenerate floor. `b` is the exact (E54) vector,
+identical to the one `vcmd_limits` builds, so this method has no bare-vs-augmented
+approximation left in it at all.
+
+FILTERING: `Vx/Vy/psidot` are the schedule's low-pass-filtered estimates (brief
+§9) so the gate stays smooth; `a_eq` is passed RAW. The equivalent-control
+acceleration carries `lam*edot` terms that can be spiky, so if the gate turns out
+noisy this is the first place to look -- flagged rather than pre-solved, since
+`vcmd_limits` filters neither and its guard is measured smooth.
+"""
+function kmax_schedule(lim::PhysicalLimits, Vx::Real, Vy::Real, psidot::Real,
+                       a_eq::SVector{3,Float64})
+    F_perp3 = lim.kappa * (Vy - lim.h * psidot)
+    mu_N3_margined = lim.safety_margin * lim.mu_N3
+    F_par_avail = sqrt(max(0.0, mu_N3_margined^2 - F_perp3^2))
+
+    # (E54)'s b, verbatim: BARE mass (m_s, I_s), contact drags only (110.0*Vy,
+    # 2.20*psidot). Byte-identical to vcmd_limits' `_b`, evaluated at the
+    # equivalent-control acceleration instead of the correction's.
+    m, ms, Is, aX, aY = lim.m, lim.ms, lim.Is, lim.aX, lim.aY
+    ax, ay, alpha = a_eq[1], a_eq[2], a_eq[3]
+    b_x = ms*ax - m*aY*alpha - ms*psidot*Vy - m*aX*psidot^2
+    b_y = ms*ay + m*aX*alpha + ms*psidot*Vx - m*aY*psidot^2 - 110.0*Vy
+    b_O = -m*aY*ax + m*aX*ay + Is*alpha + m*psidot*(aX*Vx + aY*Vy) - 2.20*psidot
+
+    F_par3 = 0.354*(b_x + b_y) - 0.918*b_O
+    F_avail = max(0.0, F_par_avail - abs(F_par3))
+
+    frac = lim.mu_N3 > 0 ? F_avail / lim.mu_N3 : 0.0
+    return capability_wrench(lim) .* frac
+end
+
+
+"""
     vcmd_limits(lim, xhat, dt, vcmd_prev, vcmd_raw) -> (V_cmd, gamma, guard_hit)
 
 Feasibility-limited velocity command via the SAME binding-wheel gate (E54) as
@@ -322,16 +394,31 @@ NORMALIZER CAUTION: this does NOT use `V_y,crit=0.63` anywhere -- that is the
 COMBINED steady-strafe point (F_par forced equal to F_perp), not a velocity
 scale for this gate; using it would double-count.
 """
-function vcmd_limits(lim::PhysicalLimits, xhat, dt::Real,
-                     vcmd_prev::SVector{3,Float64}, vcmd_raw::SVector{3,Float64})
+function vcmd_limits(lim::PhysicalLimits, xhat, lam_inner::SVector{3,Float64},
+                     V_ff::SVector{3,Float64}, correction::SVector{3,Float64})
     Vx, Vy, psidot = xhat[1], xhat[2], xhat[3]
-    a_req = (vcmd_raw .- vcmd_prev) ./ dt
+
+    # Implied acceleration of the CORRECTION only. The inner loop closes a
+    # velocity offset with time constant lam_inner (IMC design), so a velocity
+    # correction `c` is a request for acceleration `c/lam_inner`.
+    #
+    # THIS IS THE STRUCTURAL FIX. The previous version computed
+    #     a_req = (vcmd_raw - vcmd_prev)/dt
+    # and then wrote the throttled result back into vcmd_prev, which makes
+    #     V_cmd = (1-gamma)*vcmd_prev + gamma*vcmd_raw
+    # -- an exponential filter on the velocity command with tau ~ dt/gamma, and
+    # a POSITIVE FEEDBACK loop: throttling makes V_cmd lag, the lag grows the
+    # tracking error, the larger error grows the demand, the larger demand
+    # shrinks gamma. Measured runaway: gamma_min 0.000, gamma<1 on 78% of ticks,
+    # PID-CT tracking 257.58 on octagon_stress against 0.1994 with the gate
+    # bypassed. `a_corr` depends only on the CURRENT error, so vcmd_prev does
+    # not appear anywhere and the loop is structurally absent.
+    a_corr = correction ./ lam_inner
 
     m, ms, Is, aX, aY = lim.m, lim.ms, lim.Is, lim.aX, lim.aY
 
-    # E55 demand vector, split into velocity-only (a=0) and full (a=a_req)
-    # evaluations -- F_par3 is affine in `a`, so this gives the two points
-    # needed to solve for gamma without ever forming the Jacobian explicitly.
+    # E55 demand vector, unchanged. F_par3 is affine in the acceleration, so two
+    # evaluations (a=0 and a=a_corr) give the whole line without a Jacobian.
     _b(ax, ay, alpha) = (
         ms*ax - m*aY*alpha - ms*psidot*Vy - m*aX*psidot^2,
         ms*ay + m*aX*alpha + ms*psidot*Vx - m*aY*psidot^2 - 110.0*Vy,
@@ -340,25 +427,29 @@ function vcmd_limits(lim::PhysicalLimits, xhat, dt::Real,
     _Fpar3(b) = 0.354*(b[1] + b[2]) - 0.918*b[3]
 
     b0 = _b(0.0, 0.0, 0.0)
-    b1 = _b(a_req[1], a_req[2], a_req[3])
+    b1 = _b(a_corr[1], a_corr[2], a_corr[3])
     F_par3_0 = _Fpar3(b0)
-    F_par3_1 = _Fpar3(b1)
-    dF = F_par3_1 - F_par3_0
+    dF       = _Fpar3(b1) - F_par3_0
 
     F_perp3 = lim.kappa * (Vy - lim.h * psidot)
     mu_N3_m = lim.safety_margin * lim.mu_N3
-    budget = mu_N3_m^2 - F_perp3^2
+    budget  = mu_N3_m^2 - F_perp3^2
 
+    # SAFE FLOOR, replacing both former degenerate branches. When the circle is
+    # already fully consumed by the current STATE (a quantity no scaling of the
+    # command can change), drop the correction and pass the feedforward through:
+    # V_cmd = V_ff. That is still the reference, and the reference is feasible by
+    # construction -- verified across the whole tier, peak |V_y - h*psidot| =
+    # 0.694 against the 0.805 threshold (see the standing assertion in the
+    # brief's SUCCESS CRITERIA). So the floor tracks a reachable target instead
+    # of freezing at a stale command, and recovery proceeds on its own.
     if budget < 0.0 || abs(F_par3_0) > sqrt(max(budget, 0.0))
-        # Degenerate: the platform is already outside its (margined) circle,
-        # or even holding steady (a=0) would violate it. Reportable finding
-        # (brief §9), not silenced.
-        return vcmd_prev, 0.0, true
+        return V_ff, 0.0, true
     end
 
     target = sqrt(budget)
     gamma = if dF == 0.0
-        1.0   # F_par3 independent of a_req; already within budget at a=0 (checked above)
+        1.0
     elseif dF > 0.0
         (target - F_par3_0) / dF
     else
@@ -366,8 +457,9 @@ function vcmd_limits(lim::PhysicalLimits, xhat, dt::Real,
     end
     gamma = clamp(gamma, 0.0, 1.0)
 
-    V_cmd = vcmd_prev .+ gamma .* a_req .* dt
-    return V_cmd, gamma, false
+    # gamma == 1 reproduces the ungated command exactly (V_ff + correction ==
+    # vcmd_raw), so the gate is INVISIBLE whenever the correction fits.
+    return V_ff .+ gamma .* correction, gamma, gamma < 1.0 - 1e-9
 end
 """
     lambda_schedule(e, edot, lam_max, v_max) -> (lam, lam_dot)
@@ -396,12 +488,42 @@ end
 sigma is IDENTICAL across axes (no range-dependence in its own formula);
 cubic_coeff is RANGE-PROPORTIONAL (K_max_base-K_floor)/tau_ceiling, giving
 equal decay times per axis despite the 8.5x range difference (brief §6).
+
+GAMMA-NORMALISED. `gamma` is now factored OUT of the whole gain-update bracket:
+
+    dK = gamma * [ s*tanh(s/eps)*bound  -  c*(K/K_max)^3  -  sigma*(K-K0)*exp(...) ]
+
+so gamma is a pure TIME-SCALING of the adaptation and no longer sets where K
+settles. Previously growth scaled with gamma while the decay terms did not, so
+the equilibrium moved with the tuning knob:
+
+    K_eq = K_max * (gamma * s*tanh(s/eps) / c)^(1/3)      <-  K_eq ~ gamma^(1/3)
+
+With c and sigma both divided by `gamma_ref`, gamma cancels and
+
+    K_eq = K_max * (s*tanh(s/eps) / c_tilde)^(1/3)        <-  disturbance only
+
+which is what an adaptive gain is supposed to do: respond to the disturbance,
+not to how fast you told it to respond. Practical consequence for tuning: the
+optimizer can move gamma without dragging the settling level with it, so gamma
+and the decay constants stop fighting each other.
+
+`tau_relax`/`tau_ceiling` are therefore the design time constants AT
+`gamma = gamma_ref`; at other gamma the actual decay times scale by
+`gamma_ref/gamma`. Both must be reported alongside `gamma_ref`.
+
+NOTE this does NOT by itself pull K below the ceiling. At representative values
+(|s| ~ 0.5, c_tilde = 0.403 on x) K_eq ~ 7.1 against K_max = 6.59, so the growth
+gate still binds -- the equilibrium is now gamma-INDEPENDENT, but its LEVEL is
+set by tau_ceiling. If tuning shows K pinned at the ceiling, tau_ceiling is the
+knob, not gamma.
 """
 function decay_parameters(K_max_base::SVector{3,Float64}, K_floor::SVector{3,Float64},
-                          tau_relax::Real, tau_ceiling::Real, decay_k::Real)
-    sigma = 1.0 / (tau_relax * exp(decay_k))
+                          tau_relax::Real, tau_ceiling::Real, decay_k::Real,
+                          gamma_ref::Real)
+    sigma = 1.0 / (gamma_ref * tau_relax * exp(decay_k))
     decay_sigma = SVector(sigma, sigma, sigma)
-    cubic_coeff = (K_max_base .- K_floor) ./ tau_ceiling
+    cubic_coeff = (K_max_base .- K_floor) ./ (gamma_ref * tau_ceiling)
     return (decay_sigma=decay_sigma, cubic_coeff=cubic_coeff)
 end
 
@@ -414,7 +536,8 @@ a new function). Puts the knee at 98% of ceiling on EVERY axis regardless of
 K_max's physical value (brief §6: v1's absolute -2.0 put the knee at 70% on
 x but 96.5% on psi once K_max is physically derived).
 """
-_smooth_bound_v2(K::Real, K_max::Real) = 0.5 - 0.5 * tanh(K - 0.98 * K_max)
+_smooth_bound_v2(K::Real, K_max::Real, w::Real=50.0) =
+    K_max <= 0 ? 0.0 : 0.5 - 0.5 * tanh(w * (K / K_max - 0.98))
 
 """
     _allocation_constant(lim) -> Float64
@@ -451,6 +574,113 @@ end
 # ASMCControllerV2
 # -----------------------------------------------------------------------------
 """
+    SurfaceNoise
+
+Noise on the quantities the sliding surface is BUILT FROM -- i.e. the ESTIMATOR
+OUTPUT error, not raw sensor noise. `s = edot + lam*e` is assembled from `xhat`,
+so what matters is how badly `xhat` is known, after whatever filtering the
+estimator does.
+
+All zero (the default) = a clean run: `OracleEstimator(:clean)` injects nothing,
+so the surface is exact and the boundary layer collapses to its resolution floor.
+
+Reference values for `OracleEstimator(:noisy, scale=1.0)`:
+    sig_vel = 0.010 m/s   sig_pos = 0.020 m
+    sig_rate= 0.003 rad/s sig_psi = 0.010 rad
+NOTE those are 10x WORSE on velocity than the estimator objective's own target
+(`v_tol = 1e-3`), and 3.3x BETTER on yaw rate (`rate_tol = 1e-2`). If the ASMC is
+to be deployed on the tuned ESKF rather than the oracle, populate this from the
+ESKF's ACHIEVED error, not from the oracle's injection.
+"""
+Base.@kwdef struct SurfaceNoise
+    sig_vel::Float64  = 0.0    # [m/s]   velocity-estimate error
+    sig_pos::Float64  = 0.0    # [m]     position-estimate error
+    sig_rate::Float64 = 0.0    # [rad/s] yaw-rate-estimate error
+    sig_psi::Float64  = 0.0    # [rad]   heading-estimate error
+end
+
+"""
+    eps_from_noise(lam_x, lam_y, lam_psi, nz; tol_v, tol_rate, k) -> (eps, eps_psi)
+
+DERIVE the boundary layer instead of inheriting it. Two competing requirements,
+resolved by a max:
+
+    eps_i = max( 0.5 * tol_i ,  k * sigma_s,i )
+
+RESOLUTION TERM (0.5*tol). The switching term cannot respond to anything inside
+the boundary layer, so an inherited-wide `eps` silently discards estimator
+precision that the PID -- which has no deadband -- can use. At `eps = 0.5*tol` an
+error at the tolerance sits at 2*eps, where tanh(2) = 0.96, i.e. the controller
+responds essentially fully at the spec. The previous pinned `eps = 0.0175 m/s`
+was 17.5x the estimator objective's `v_tol = 1e-3` (and `eps_psi = 0.08` was 8x
+`rate_tol = 1e-2`) -- so the ASMC was structurally unable to exploit the accuracy
+the estimator was being tuned to deliver.
+
+NOISE TERM (k*sigma_s). Below roughly the noise amplitude the tanh saturates on
+noise alone: pure bang-bang switching, chatter, and -- because the adaptation
+`s*tanh(s/eps) >= 0` is a RATCHET that only ever raises K -- a switching gain
+pinned at its ceiling. `sigma_s` combines both channels that enter the surface:
+
+    sigma_s,xy  = sqrt(sig_vel^2  + (lam * sig_pos)^2)
+    sigma_s,psi = sqrt(sig_rate^2 + (lam_psi * sig_psi)^2)
+
+The POSITION channel dominates: at lam_x = 1.5 and sig_pos = 0.020, the position
+term is 0.030 against the velocity term's 0.010. This is why the estimator's
+velocity tolerance barely reaches the ASMC's surface at all, and why the
+estimator objective's lack of any POSITION tolerance matters more than `v_tol`.
+
+`eps` is shared across x and y (as before) and sized on the LARGER of the two
+sigma_s -- they differ by only ~14% at representative lambdas, so per-axis bands
+would buy little for an extra parameter.
+
+k = 1.75 is a DESIGN CONSTANT, not a derivation: at 1*sigma the tanh already
+reaches 0.76 on noise alone. It must be reported, and validated by measuring
+chatter rather than assumed.
+
+CHATTER FLOOR (`eps_floor_xy`, `eps_floor_psi`) -- the third term in the max, and
+the reason the clean branch does NOT collapse to `0.5*tol`.
+
+`eps` is the direct chatter knob: the switching term's slew is ~ (K/eps)*sdot, so
+shrinking eps raises actuator activity proportionally. MEASURED on a clean run
+(octagon_stress, default gains):
+
+    eps = 0.0175  ->  tracking 0.7454   chatter 0.182
+    eps = 0.0050  ->  tracking 0.7376   chatter 0.198
+    eps = 0.0005  ->  tracking 0.7329   chatter 0.234
+
+So the full resolution floor buys ~1.7% tracking and costs ~28% chatter. That is a
+bad trade: `chatter` is volts/ms summed over 4 wheels, against a hardware slew
+ceiling of `4*dV_max/f_mix = 0.8 V/ms`, so the tight-eps runs sit at ~29% of the
+actuator's slew capability with nothing to show for it. (No sample-rate limit
+cycling was found down to 1e-4 -- the cost is smooth, not a cliff.)
+
+DEFAULTS ARE A DESIGN CHOICE, report them:
+    eps_floor_xy  = 0.005  m/s    5x the estimator's v_tol; 3.5x tighter than the
+                                  inherited 0.0175, so most of the fairness gap to
+                                  the (deadband-free) PID is closed
+    eps_floor_psi = 0.02   rad/s  2x rate_tol; 4x tighter than the inherited 0.08
+
+The residual fairness cost is explicit: at an error exactly at `v_tol` the switching
+term responds at `tanh(0.001/0.005) = 0.20`, i.e. 20% strength rather than the ~96%
+`0.5*tol` would give. Since the measured score difference across the whole eps range
+is only 1.7-3.5%, that is worth trading for the chatter.
+
+CONSEQUENCE TO EXPECT: eps now differs between clean and noisy runs, so the ASMC
+is configured per noise environment. That mirrors what the PID already does --
+its tuned lam_inner rises ~7% from clean to noisy across all 5 seeds -- and the
+noisy stage is a warm-started continuation either way, so it costs no extra run.
+"""
+function eps_from_noise(lam_x::Real, lam_y::Real, lam_psi::Real, nz::SurfaceNoise;
+                        tol_v::Real=1e-3, tol_rate::Real=1e-2, k::Real=1.75,
+                        eps_floor_xy::Real=0.005, eps_floor_psi::Real=0.02)
+    sig_s_xy  = max(sqrt(nz.sig_vel^2 + (lam_x * nz.sig_pos)^2),
+                    sqrt(nz.sig_vel^2 + (lam_y * nz.sig_pos)^2))
+    sig_s_psi = sqrt(nz.sig_rate^2 + (lam_psi * nz.sig_psi)^2)
+    return (max(eps_floor_xy,  0.5 * tol_v,    k * sig_s_xy),
+            max(eps_floor_psi, 0.5 * tol_rate, k * sig_s_psi))
+end
+
+"""
     ASMCControllerV2
 
 Same `(bus, xhat, ref, params, dt; mode)` contract as `ASMCController`, but
@@ -466,12 +696,33 @@ rather than silently assumed (unlike `tau_slip` in the sensor brief, which
 WAS freshly measured).
 
 `start_at_floor` (brief §8 step 8): `bus.K` resets to zeros in the
-never-edited `bus.jl`. DELIBERATE CHOICE made here: default `false` (keep the
-zero start), because the brief itself notes the startup transient is "one of
-the few places gamma is observable" -- and gamma_x/y/psi are exactly what
-`ASMC_SPACE_V2` tunes. Set `true` to instead inject `0.95*K_floor` on the
-first tick and remove the transient (a legitimate choice for a non-tuning
-deployment run, just not the default here).
+never-edited `bus.jl`. DEFAULT CHANGED TO `true` -- K now starts at
+`0.95*K_floor` instead of zero.
+
+REASON: `K_floor` is derived from the MEASURED p50 of |Msat - Meq| (1.2 N*m
+per wheel, `_default_k_floor`), i.e. the TYPICAL switching demand. Starting
+there means "begin with authority for the typical disturbance and adapt up for
+the atypical"; starting at zero means "begin with no robustness and spend
+seconds discovering it". At the observed tuned gammas the reaching phase from
+K=0 costs 2.5-3.9 s to reach K_floor on x (gamma_x ~ 4-6, |s| ~ 0.1) against
+25-60 s trajectories -- 5-15% of the run with an essentially unarmed
+controller, and far longer to reach a useful K. Since `max_pos`/`max_head` are
+two of the four scored terms and the largest excursion falls in that window,
+the objective was substantially measuring the cold start rather than the
+control law.
+
+The previous `false` default existed because the startup transient is "one of
+the few places gamma is observable", and gamma_x/y/psi are searched by
+`ASMC_SPACE_V2`. That trade is accepted deliberately: gamma remains observable
+through every in-run disturbance excursion (slip events on the stress
+trajectories drive |s| up repeatedly), and the transient-dominated landscape
+was not converging anyway -- 5 seeds spread 1.36-3.89 in score with gamma_x
+railed at the 100 cap on the two best. Removing the transient is what lets
+gamma be selected on its steady adaptation behaviour instead.
+
+No windup risk: if the actual disturbance is smaller than K_floor, the
+sigma-leak pulls K back toward the set-point, which is what the leak is for.
+Set `false` to restore the zero start (e.g. to reproduce a pre-change run).
 """
 Base.@kwdef mutable struct ASMCControllerV2
     lim::PhysicalLimits
@@ -480,15 +731,44 @@ Base.@kwdef mutable struct ASMCControllerV2
     lam_x_max::Float64   = 1.5
     lam_y_max::Float64   = 2.5
     lam_psi_max::Float64 = 5.0
-    gamma_x::Float64     = 8.0
-    gamma_y::Float64     = 15.0
-    gamma_psi::Float64   = 25.0
+    # FIXED, no longer searched. gamma is now a pure adaptation-RATE multiplier
+    # (it factors out of the whole gain-update bracket), so it is derived from the
+    # per-axis open-loop time constant rather than tuned:
+    #     tau_K = 1/(3*gamma*(c_tilde/K_max)*(K_eq/K_max)^2),  c_tilde/K_max = 0.0611
+    #     (axis-independent, since both carry alloc_ratio)
+    # Set tau_K = tau_open/2 per axis at K_eq/K_max = 0.5, tau_open = (0.256,0.114,0.155):
+    gamma_x::Float64     = 170.0
+    gamma_y::Float64     = 380.0
+    gamma_psi::Float64   = 280.0
 
     # Specified (design constants / measured-noise proxies, not searched)
-    eps::Float64         = 0.0175
-    eps_psi::Float64      = 0.08
-    tau_relax::Float64    = 2.0    # sigma-leak time constant (design choice, must be reported)
-    tau_ceiling::Float64  = 0.5    # cubic-barrier time constant (design choice, must be reported)
+    # Surface-noise model + boundary layers DERIVED from it (eps_from_noise).
+    # Declared after lam_*_max because @kwdef evaluates defaults in order.
+    noise::SurfaceNoise = SurfaceNoise()          # zero = clean run
+    tol_v::Float64      = 1e-3                    # estimator objective velocity tol
+    tol_rate::Float64   = 1e-2                    # estimator objective yaw-rate tol
+    k_eps::Float64      = 1.75                    # boundary layer in units of sigma_s
+    # Chatter floors: MECHANISM RETAINED, DISABLED (0.0) for this tuning run --
+    # per-user direction, the eps/chatter trade is deferred. Setting these to
+    # (0.005, 0.02) reproduces the widened-band configuration whose measured
+    # effect is recorded in eps_from_noise'''s docstring.
+    eps_floor_xy::Float64  = 0.0                  # chatter floor, x/y [m/s]
+    eps_floor_psi::Float64 = 0.0                  # chatter floor, psi [rad/s]
+    eps::Float64        = eps_from_noise(lam_x_max, lam_y_max, lam_psi_max, noise;
+                                         tol_v=tol_v, tol_rate=tol_rate, k=k_eps,
+                                         eps_floor_xy=eps_floor_xy,
+                                         eps_floor_psi=eps_floor_psi)[1]
+    eps_psi::Float64    = eps_from_noise(lam_x_max, lam_y_max, lam_psi_max, noise;
+                                         tol_v=tol_v, tol_rate=tol_rate, k=k_eps,
+                                         eps_floor_xy=eps_floor_xy,
+                                         eps_floor_psi=eps_floor_psi)[2]
+    tau_relax::Float64    = 2.0    # sigma-leak time constant AT gamma_ref (design choice, reported)
+    tau_ceiling::Float64  = 0.5    # cubic-barrier time constant AT gamma_ref (design choice, reported)
+    gamma_ref::Float64    = 250.0  # gamma at which tau_relax/tau_ceiling hold (see decay_parameters).
+                                   # MUST stay a FIXED SCALAR distinct from gamma_*: setting
+                                   # gamma_ref_i = gamma_i makes gamma cancel out of the decay
+                                   # term entirely, restoring the old growth-scales-but-decay-
+                                   # doesn't asymmetry this change exists to remove.
     decay_k::Float64      = 0.25
     v_max_axis::SVector{3,Float64} = SVector(0.63, 0.63, 3.8)  # platform's own V_y,crit / psidot_max caps (.tex §3.2-3.3)
     rate_hz::Float64      = 1000.0
@@ -496,8 +776,8 @@ Base.@kwdef mutable struct ASMCControllerV2
     # Derived-at-construction (depends on lim + the specified fields above)
     K_max_base::SVector{3,Float64}  = capability_wrench(lim)
     K_floor::SVector{3,Float64}     = _default_k_floor(lim)
-    decay_sigma::SVector{3,Float64} = decay_parameters(capability_wrench(lim), _default_k_floor(lim), tau_relax, tau_ceiling, decay_k).decay_sigma
-    cubic_coeff::SVector{3,Float64} = decay_parameters(capability_wrench(lim), _default_k_floor(lim), tau_relax, tau_ceiling, decay_k).cubic_coeff
+    decay_sigma::SVector{3,Float64} = decay_parameters(capability_wrench(lim), _default_k_floor(lim), tau_relax, tau_ceiling, decay_k, gamma_ref).decay_sigma
+    cubic_coeff::SVector{3,Float64} = decay_parameters(capability_wrench(lim), _default_k_floor(lim), tau_relax, tau_ceiling, decay_k, gamma_ref).cubic_coeff
 
     # Target equilibrium (leakage set-point, NOT the initial condition despite
     # the K_x0 name -- brief §7.1). Cubic depresses the actual resting K below
@@ -509,12 +789,35 @@ Base.@kwdef mutable struct ASMCControllerV2
 
     # Schedule config
     use_scheduled_kmax::Bool = true
+    # Degenerate-case floor UNDER the scheduled ceiling (brief §9). Default
+    # 0.05*K_max_base reproduces the as-designed behaviour bit-identically.
+    #
+    # MEASURED PROBLEM with that default: K_max_base/K_floor == 4.2264 on all
+    # three axes (both carry alloc_ratio), so 0.05*K_max_base == 0.211*K_floor --
+    # the ceiling's own floor sits 4.73x BELOW the resting gain the sigma leak
+    # holds K at. On the 8/12 trajectories where the schedule bottoms out, K is
+    # therefore already 4.7x over its ceiling at tick zero and the growth gate is
+    # shut before adaptation does anything. Two independently-chosen constants (a
+    # 5% degenerate floor; a capability-proportional resting gain) that are
+    # mutually inconsistent by 4.7x.
+    #
+    # NOTE this is a floor on the CEILING, not on K: K cannot fall below K_floor
+    # in the first place (the sigma leak drives K toward it, the growth term is
+    # >= 0, and the only term that ever depressed K below the setpoint was the
+    # cubic, now disabled). Raising it stops K being PINNED, it does not stop K
+    # being DEPRESSED -- nothing was depressing it.
+    kmax_sched_floor::SVector{3,Float64} = 0.05 .* K_max_base
     kmax_lpf_tau::Float64    = 0.05   # low-pass tau on the estimated V_y/psidot schedule inputs (brief §9)
-    start_at_floor::Bool     = false  # K initial-condition choice -- see struct docstring
+    # Build the schedule's longitudinal demand from (E54)'s CONTACT-side b-vector
+    # instead of from the actuator-side W_ff. Default FALSE preserves the
+    # as-designed behaviour bit-identically. See the 5-arg kmax_schedule method.
+    kmax_contact_b::Bool     = false
+    start_at_floor::Bool     = true   # K starts at 0.95*K_floor, NOT zero -- see struct docstring
 
     use_dhat::Bool = false
 
     # Internal state
+    Vx_filt::MVector{1,Float64}     = MVector(0.0)   # only used when kmax_contact_b
     Vy_filt::MVector{1,Float64}     = MVector(0.0)
     psidot_filt::MVector{1,Float64} = MVector(0.0)
     initialized::Bool = false
@@ -524,9 +827,51 @@ Base.@kwdef mutable struct ASMCControllerV2
     # not in `SchedulerMod`'s probe-log schema and that file is never edited,
     # so this self-contained logging hook lives on the controller instance
     # instead -- zero cost when `log_K=false` (the default; hot-path safe).
+    # Cubic barrier ON/OFF. Default FALSE -- removed per-user direction after it
+    # was measured harmful (see the gating comment in asmc_wrench!). The LINEAR
+    # sigma leak is unaffected and stays active. Kept as a toggle rather than
+    # deleted so the old behaviour is still reachable for an ablation.
+    use_cubic::Bool = false
+
+    # --- Demand-driven gain law (D3) -----------------------------------------
+    # Default FALSE. When true it REPLACES the growth gate, the sigma leak and
+    # the cubic with a single two-sided law; see asmc_wrench!.
+    use_demand_k::Bool  = false
+    # Dimensionless. z* = G/(G + rho_auth*eps), so rho_auth reads as "how many
+    # boundary layers of sliding error buys HALF the available authority".
+    rho_auth::Float64   = 4.0
+    # Floor under the z denominator (K_max_sched - K_floor), as a fraction of the
+    # constant headroom (K_max_base - K_floor). Only bites if the schedule
+    # collapses to K_floor, where z would otherwise be undefined; at that point
+    # z saturates immediately and growth shuts off, which is the correct
+    # conservative response.
+    z_den_frac::Float64 = 0.05
+
+    # --- Hard lower bound on K ------------------------------------------------
+    # Default FALSE (preserves the as-designed initial condition bit-identically).
+    # When true, K is guaranteed >= K_floor at ALL times:
+    #   (a) the initial condition becomes K_floor exactly, not 0.95*K_floor.
+    #       `start_at_floor` sets bus.K = 0.95*K_floor, i.e. 5% BELOW the sigma
+    #       leak's own setpoint -- measured minK/K_floor = 0.950 on every
+    #       trajectory and every axis, which is that IC and nothing else.
+    #   (b) a post-update projection max.(K, K_floor).
+    # Nothing in the DEFAULT law drives K under K_floor during operation (the
+    # growth term is >= 0 and the sigma leak targets K_floor), and under the
+    # demand law z<0 makes both terms positive so K is pushed back up -- but
+    # "pushed back up" is an attractor argument, not a guarantee, and a discrete
+    # Euler step can undershoot it. The cubic barrier CAN drive K below the floor
+    # and was measured doing so (tracking 10-12x worse); this projection closes
+    # that path too, though use_cubic=false already does.
+    # A floor projection is not the ceiling projection this whole line of work
+    # removed: it bounds loss of NOMINAL robustness from below, it does not bound
+    # adaptation from above.
+    enforce_k_floor::Bool = false
+
     log_K::Bool = false
     K_log::Vector{SVector{3,Float64}} = SVector{3,Float64}[]
     K_max_sched_log::Vector{SVector{3,Float64}} = SVector{3,Float64}[]
+    W_log::Vector{SVector{3,Float64}} = SVector{3,Float64}[]     # total commanded wrench
+    Msw_log::Vector{SVector{3,Float64}} = SVector{3,Float64}[]   # switching part only
 end
 
 """
@@ -552,7 +897,10 @@ function Main.ControllerMod.asmc_wrench!(bus, xhat, ref, params, asmc::ASMCContr
                                          mode::Symbol=:pose)
     if !asmc.initialized
         if asmc.start_at_floor
-            bus.K = 0.95 .* asmc.K_floor
+            # enforce_k_floor starts AT the floor rather than 5% under it -- see
+            # the field's docstring; that 0.95 is the only reason measured
+            # minK/K_floor is 0.950 rather than 1.000.
+            bus.K = asmc.enforce_k_floor ? asmc.K_floor : 0.95 .* asmc.K_floor
         end
         asmc.initialized = true
     end
@@ -654,35 +1002,137 @@ function Main.ControllerMod.asmc_wrench!(bus, xhat, ref, params, asmc::ASMCContr
     if asmc.use_scheduled_kmax
         asmc.Vy_filt[1]     += (dt / asmc.kmax_lpf_tau) * (Vy - asmc.Vy_filt[1])
         asmc.psidot_filt[1] += (dt / asmc.kmax_lpf_tau) * (psi_dot - asmc.psidot_filt[1])
-        K_max_sched = kmax_schedule(asmc.lim, asmc.Vy_filt[1], asmc.psidot_filt[1], W_ff)
-        K_max_sched = max.(K_max_sched, 0.05 .* asmc.K_max_base)   # degenerate-case floor (brief §9)
+        K_max_sched = if asmc.kmax_contact_b
+            asmc.Vx_filt[1] += (dt / asmc.kmax_lpf_tau) * (Vx - asmc.Vx_filt[1])
+            kmax_schedule(asmc.lim, asmc.Vx_filt[1], asmc.Vy_filt[1], asmc.psidot_filt[1],
+                          SVector(Ax_eq, Ay_eq, alpha_eq))
+        else
+            kmax_schedule(asmc.lim, asmc.Vy_filt[1], asmc.psidot_filt[1], W_ff)
+        end
+        K_max_sched = max.(K_max_sched, asmc.kmax_sched_floor)   # degenerate-case floor (brief §9)
     else
         K_max_sched = asmc.K_max_base
     end
     K_max_eff = max.(SVector(K_x, K_y, K_psi), K_max_sched)   # LAZY clamp (projection, not hard clamp)
 
-    base_dK_x   = asmc.gamma_x   * (s_x   * ss_x)
-    base_dK_y   = asmc.gamma_y   * (s_y   * ss_y)
-    base_dK_psi = asmc.gamma_psi * (s_psi * ss_psi)
 
-    dK_x = base_dK_x * _smooth_bound_v2(K_x, K_max_eff[1]) -
-           asmc.cubic_coeff[1] * (K_x / K_max_eff[1])^3 -
-           asmc.decay_sigma[1] * (K_x - asmc.K_x0 * 0.95) * exp(asmc.decay_k * (1 - s_x^2 / (9*asmc.eps^2)))
-    dK_y = base_dK_y * _smooth_bound_v2(K_y, K_max_eff[2]) -
-           asmc.cubic_coeff[2] * (K_y / K_max_eff[2])^3 -
-           asmc.decay_sigma[2] * (K_y - asmc.K_y0 * 0.95) * exp(asmc.decay_k * (1 - s_y^2 / (9*asmc.eps^2)))
-    dK_psi = base_dK_psi * _smooth_bound_v2(K_psi, K_max_eff[3]) -
-             asmc.cubic_coeff[3] * (K_psi / K_max_eff[3])^3 -
-             asmc.decay_sigma[3] * (K_psi - asmc.K_psi0 * 0.95) * exp(asmc.decay_k * (1 - s_psi^2 / (9*asmc.eps_psi^2)))
+    # CUBIC BARRIER GATED OFF by default (`use_cubic=false`, per-user direction).
+    # It is not merely inert -- it is HARMFUL, and the mechanism is measured:
+    #
+    #   * The clamp is LAZY: K_max_eff = max(K, K_max_sched). K exceeds the
+    #     scheduled ceiling on 53-61% of ticks (p90 ratio 4.67,
+    #     _tmp/k_trace.jl), and whenever it does (K/K_max_eff)^3 == 1 exactly --
+    #     so the cubic runs at FULL strength `cubic_coeff`, not a fraction of it.
+    #   * cubic_coeff = (K_max_base-K_floor)/(gamma_ref*tau_ceiling), so it is
+    #     6.7e-5 at the converged tau_ceiling=300 (negligible) but 0.0403 at the
+    #     struct default 0.5.
+    #   * Measured K sits AT its floor (1.538/1.508/13.049, matching
+    #     _default_k_floor's 1:1:8.6 alloc_ratio), so the sigma leak
+    #     `sigma*(K - 0.95*K0)*gate` is ~zero there and nothing opposes the cubic.
+    #     It then drives K BELOW the floor, destroying switching authority:
+    #     tracking degrades 10-12x at tau_ceiling 0.05-0.5 vs 300
+    #     (_tmp/tau_ceiling_sweep.jl: 9.78 / 11.76 vs 0.99).
+    #
+    # That is why every seed railed tau_ceiling at its box edge -- it was escaping
+    # this term, and `use_cubic=false` IS the tau_ceiling -> infinity limit.
+    #
+    # The LINEAR sigma leak is KEPT: it is what holds K at ~0.95*K0 and provides
+    # the relaxation (tau_relax=2s at gamma_ref, scaled gamma_ref/gamma per axis).
+    #
+    # CONSEQUENCE: with use_cubic=false, `tau_ceiling` feeds ONLY cubic_coeff and
+    # is therefore completely inert -- it should come OUT of ASMC_SPACE_V2 rather
+    # than be searched as a dimension that cannot affect the score.
+    # --- D3: demand-driven, two-sided gain law (`use_demand_k`) --------------
+    # REPLACES the growth gate, the sigma leak and the cubic. One equation:
+    #
+    #   dK_i = gamma_i * [ s_i*tanh(s_i/eps_i)*(1 - z_i)  -  rho*eps_i*z_i ]
+    #   z_i  = (K_i - K_floor_i) / (K_max_sched_i - K_floor_i)
+    #
+    # WHY. The as-designed law's only K-DECREASING term is the sigma leak, and its
+    # exp(decay_k*(1 - s^2/9eps^2)) factor switches OFF exactly when |s| is large.
+    # The growth term s*tanh(s/eps) >= 0 never changes sign. So during any
+    # sustained excursion the bracket is non-negative and K rises monotonically
+    # until _smooth_bound_v2 closes -- K PARKS AT WHATEVER THE CEILING IS. The
+    # ceiling's value sets only WHERE it parks, never whether:
+    #   * mis-scoped ceiling (0.21*K_floor)  -> parks at the floor, reads as
+    #     "adaptation pinned", 1.00-1.02 maxK/K0 on 11/12
+    #   * corrected ceiling (~2.9*K_floor)   -> parks at ~3.0, past the measured
+    #     stability limit; spiral_orbit_stress 6.78 -> 21.97
+    # Same ratchet, relocated. Fixing kmax_schedule's scope (kmax_contact_b) is
+    # necessary and NOT sufficient: it is what exposes this.
+    #
+    # THE LAW. z is the normalised position of K in its own live range, so both
+    # terms are written in it:
+    #   z = 0 (K = K_floor) : dK = gamma*G >= 0            grows; K can never go
+    #                                                      below 0.95*K0, by algebra
+    #   z = 1 (K = K_bar)   : dK = -gamma*rho*eps < 0      pulls back
+    # K is therefore confined to [K_floor, K_bar) with NO clamp, NO projection and
+    # NO schedule consulted outside the denominator. Equilibrium:
+    #
+    #   z* = G / (G + rho*eps),     G = s*tanh(s/eps)
+    #
+    # DEMAND-DRIVEN, which is the point: z* is a continuous monotone function of
+    # that trajectory's own surface excursion, so each trajectory settles at its
+    # own K*, and it tracks demand WITHIN a trajectory (rises through a hard
+    # segment, falls back after) because the leak is alive throughout -- the exact
+    # property the exp() gate destroys. The (1-z) factor makes the map hyperbolic
+    # rather than linear, which matters because G spans ~3 orders across the
+    # trajectory set: a linear map would put every trajectory at 0 or saturated.
+    # Return time constant (K_bar-K_floor)/(gamma*(G + rho*eps)) ~ 0.24-0.48 s.
+    #
+    # NOTE the sigma-leak coefficient in the as-designed law, re-expressed in this
+    # form, is rho = 0.392/0.383/0.831 -- NOT axis-uniform despite decay_sigma
+    # being deliberately identical across axes (the eps/headroom normalisation
+    # exposes a 2x spread the raw sigma hides), and small enough that half
+    # authority came at ~0.63 boundary layers.
+    if asmc.use_demand_k
+        Kv    = SVector(K_x, K_y, K_psi)
+        epsv  = SVector(asmc.eps, asmc.eps, asmc.eps_psi)
+        den   = max.(K_max_sched .- asmc.K_floor,
+                     asmc.z_den_frac .* (asmc.K_max_base .- asmc.K_floor))
+        zv    = (Kv .- asmc.K_floor) ./ den
+        Gv    = SVector(s_x * ss_x, s_y * ss_y, s_psi * ss_psi)
+        gamv  = SVector(asmc.gamma_x, asmc.gamma_y, asmc.gamma_psi)
+        dKv   = gamv .* (Gv .* (1.0 .- zv) .- asmc.rho_auth .* epsv .* zv)
 
-    bus.K = SVector(K_x + dt*dK_x, K_y + dt*dK_y, K_psi + dt*dK_psi)
+        Knew  = Kv .+ dt .* dKv
+        bus.K = asmc.enforce_k_floor ? max.(Knew, asmc.K_floor) : Knew
+        W_total = SVector(Mx_sw + Mx_eq, My_sw + My_eq, Mpsi_sw + M_psi_eq)
+        if asmc.log_K
+            push!(asmc.K_log, bus.K)
+            push!(asmc.K_max_sched_log, K_max_sched)
+            push!(asmc.W_log, W_total)
+            push!(asmc.Msw_log, SVector(Mx_sw, My_sw, Mpsi_sw))
+        end
+        return W_total
+    end
 
+    cub = asmc.use_cubic
+    dK_x = asmc.gamma_x * (
+        (s_x * ss_x) * _smooth_bound_v2(K_x, K_max_sched[1]) -
+        (cub ? asmc.cubic_coeff[1] * (K_x / K_max_eff[1])^3 : 0.0) -
+        asmc.decay_sigma[1] * (K_x - asmc.K_x0 * 0.95) * exp(asmc.decay_k * (1 - s_x^2 / (9*asmc.eps^2))))
+    dK_y = asmc.gamma_y * (
+        (s_y * ss_y) * _smooth_bound_v2(K_y, K_max_sched[2]) -
+        (cub ? asmc.cubic_coeff[2] * (K_y / K_max_eff[2])^3 : 0.0) -
+        asmc.decay_sigma[2] * (K_y - asmc.K_y0 * 0.95) * exp(asmc.decay_k * (1 - s_y^2 / (9*asmc.eps^2))))
+    dK_psi = asmc.gamma_psi * (
+        (s_psi * ss_psi) * _smooth_bound_v2(K_psi, K_max_sched[3]) -
+        (cub ? asmc.cubic_coeff[3] * (K_psi / K_max_eff[3])^3 : 0.0) -
+        asmc.decay_sigma[3] * (K_psi - asmc.K_psi0 * 0.95) * exp(asmc.decay_k * (1 - s_psi^2 / (9*asmc.eps_psi^2))))
+
+    Kupd  = SVector(K_x + dt*dK_x, K_y + dt*dK_y, K_psi + dt*dK_psi)
+    bus.K = asmc.enforce_k_floor ? max.(Kupd, asmc.K_floor) : Kupd
+
+    W_total = SVector(Mx_sw + Mx_eq, My_sw + My_eq, Mpsi_sw + M_psi_eq)
     if asmc.log_K
         push!(asmc.K_log, bus.K)
         push!(asmc.K_max_sched_log, K_max_sched)
+        push!(asmc.W_log, W_total)
+        push!(asmc.Msw_log, SVector(Mx_sw, My_sw, Mpsi_sw))
     end
 
-    return SVector(Mx_sw + Mx_eq, My_sw + My_eq, Mpsi_sw + M_psi_eq)
+    return W_total
 end
 
 # =============================================================================
@@ -728,11 +1178,13 @@ Base.@kwdef mutable struct PIDControllerV2
 
     rate_hz::Float64 = 100.0
 
-    # State (persists across ticks, mirrors v1 PIDController's prev_e/prev_e_pos)
+    # State (persists across ticks, mirrors v1 PIDController's prev_e).
+    # NOTE: no prev_e_pos/pos_initialized here -- v1 kept those to finite-
+    # difference eps_dot; this variant computes eps_dot analytically from
+    # xhat's own velocity estimate instead (see pose_outer_loop_v2), so there
+    # is no position-error history to carry.
     prev_e::MVector{3,Float64}       = MVector(0.0, 0.0, 0.0)
     initialized::Bool                = false
-    prev_e_pos::MVector{3,Float64}   = MVector(0.0, 0.0, 0.0)
-    pos_initialized::Bool            = false
     prev_vcmd::MVector{3,Float64}    = MVector(0.0, 0.0, 0.0)   # initialized to V_ff(0) on first tick, NOT zero (brief §6)
     vcmd_initialized::Bool           = false
     last_eps_dot::MVector{3,Float64} = MVector(0.0, 0.0, 0.0)   # cached for PID-CT's a_cmd
@@ -745,6 +1197,13 @@ Base.@kwdef mutable struct PIDControllerV2
     gamma_log::Vector{Float64} = Float64[]
     guard_hit_log::Vector{Bool} = Bool[]
     i_sat_log::Vector{Bool} = Bool[]
+    # Per-axis integral UTILISATION |I|/I_max, not just the any-axis Bool above.
+    # `i_sat_log` cannot answer "is the yaw bound the binding one" (an `any` over
+    # three axes), which is the open question in pid_ct_heading_weakness_handoff
+    # §3. A ratio rather than a Bool also shows HEADROOM: 0.98 and 0.05 are both
+    # "not saturated" and mean opposite things for whether the bound is live.
+    i_util_log::Vector{SVector{3,Float64}} = SVector{3,Float64}[]
+    W_log::Vector{SVector{3,Float64}} = SVector{3,Float64}[]     # total commanded wrench
 end
 
 """
@@ -771,29 +1230,37 @@ function pose_outer_loop_v2(xhat, ref, pid::PIDControllerV2, lim::PhysicalLimits
     e_psi = Main.EstimatorMod._wrap_angle(xhat[4] - ref.psi(t))
     e_body = SVector(e_x, e_y, e_psi)
 
-    de_body = pid.pos_initialized ?
-        (e_body .- SVector(pid.prev_e_pos...)) ./ dt : SVector(0.0, 0.0, 0.0)
-    pid.prev_e_pos .= e_body
-    pid.pos_initialized = true
-
     Vx_ff, Vy_ff, om_ff = Main.Profiles.global_to_local_frame(t, psi, ref.Vxo, ref.Vyo, ref.om)
     V_ff = SVector(Vx_ff, Vy_ff, om_ff)
-    V_cmd_raw = V_ff .- pid.Kp_pos .* e_body
-
-    if !pid.vcmd_initialized
-        pid.prev_vcmd .= V_ff
-        pid.vcmd_initialized = true
-    end
+    # Split into the part known feasible (V_ff -- the reference) and the part
+    # that needs limiting (the position correction). `vcmd_limits` scales ONLY
+    # the correction, so the feedforward always reaches the inner loop intact and
+    # the command never depends on its own throttled history.
+    correction = .-pid.Kp_pos .* e_body
+    V_cmd_raw  = V_ff .+ correction
 
     V_cmd, gamma, guard_hit = if pid.use_rate_limit
-        vcmd_limits(lim, xhat, dt, SVector(pid.prev_vcmd...), V_cmd_raw)
+        vcmd_limits(lim, xhat, pid.lam_inner, V_ff, correction)
     else
         V_cmd_raw, 1.0, false
     end
     V_cmd = clamp.(V_cmd, .-pid.vcmd_clamp, pid.vcmd_clamp)   # numerical backstop, no FOS
+    # prev_vcmd is retained for diagnostics only -- it no longer feeds the gate,
+    # which is the entire point of the restructure.
     pid.prev_vcmd .= V_cmd
+    pid.vcmd_initialized = true
 
-    pid.last_eps_dot .= de_body
+    # eps_dot for PID-CT's a_cmd (brief: "commanded velocity/position-error-rate,
+    # not the reference"): ANALYTIC substitute for d(e_body)/dt, not a finite
+    # difference. xhat[1:3] is the estimator's own body-frame velocity estimate
+    # -- an independent, non-differentiated channel for exactly the quantity a
+    # 100 Hz finite difference of e_body would otherwise approximate noisily
+    # (per-user direction, found while diagnosing why PID-CT's cold-start scores
+    # ran an order of magnitude above PID-FB's: eps_dot's Kp_pos-scaled finite
+    # difference was the only place either variant differentiates a signal at
+    # all, and it fed straight into M_eq_cmd on top of fb). Same textbook fix as
+    # preferring a rate-gyro reading over a differentiated encoder position.
+    pid.last_eps_dot .= SVector(xhat[1], xhat[2], xhat[3]) .- V_ff
     Ax_des, Ay_des, alpha_des = Main.Profiles.global_to_local_frame(t, psi, ref.Axo, ref.Ayo, ref.al)
     pid.last_a_ref .= SVector(Ax_des, Ay_des, alpha_des)
 
@@ -815,14 +1282,42 @@ Cascade PID wrench, both variants:
     W = -(Kp.*e + Ki.*I)                            [PID-FB]
     W = M_eq_cmd - (Kp.*e + Ki.*I)                  [PID-CT]
 
-`M_eq_cmd` is built from the COMMANDED velocity/position-error-rate, not the
-reference -- `a_cmd = a_ref - Kp_pos.*eps_dot`, `M_eq_cmd = m_eff.*a_cmd +
-d_eff.*V_cmd + Coriolis(psi_dot, V_hat)`. The Coriolis/COM cross terms use the
+`M_eq_cmd` is built from the REFERENCE acceleration alone -- `a_cmd = a_ref`,
+`M_eq_cmd = m_eff.*a_cmd + d_eff.*V_cmd + Coriolis(psi_dot, V_hat)`. NOT
+`a_ref - Kp_pos.*eps_dot` (an earlier revision's "commanded, not reference"
+refinement) -- per-user direction, after verifying algebraically that this
+correction double-counts error `fb` already corrects: `eps_dot` (however
+computed) satisfies `eps_dot = e - Kp_pos.*e_body` exactly, since `V_cmd =
+V_ff - Kp_pos.*e_body` and `e = xhat[1:3] - V_cmd` by construction. Substituting,
+`a_cmd - a_ref = -Kp_pos.*e + Kp_pos.^2.*e_body`, so the old formula added
+`-m_eff.*Kp_pos.*e` on top of `fb`'s own `-Kp.*e` (same sign, same signal,
+effective gain `Kp + m_eff.*Kp_pos` instead of `Kp`) plus `+m_eff.*Kp_pos.^2
+.*e_body`, a THIRD term FB never has, quadratic in `Kp_pos`. This is the
+mechanism behind PID-CT's cold-start search scoring an order of magnitude
+above PID-FB's on the identical `lam_inner` box -- not (only) noise, a
+structural gain-stack independent of how `eps_dot` is computed. `a_cmd = a_ref`
+removes both spurious terms; `last_eps_dot`/its analytic computation in
+`pose_outer_loop_v2` are now unused by this method (kept for the
+`_tmp/pid_v2_validation.jl` variant-equivalence check's `.= 0.0` calls; see
+struct docstring). The Coriolis/COM cross terms use the
 ESTIMATED state (`xhat`, matching the brief's `Coriolis(psi_dot, V_hat)`
 notation) -- a deliberate mixed convention: the plant terms mirror what's
 COMMANDED, but Coriolis is a real physical effect that depends on the
 platform's ACTUAL motion. Only `:pose` is supported (brief: every trajectory
 runs `:pose`; velocity-mode paths are out of scope).
+
+**Coriolis/COM terms corrected against `asmc_wrench!`'s `Mx_eq`/`My_eq`/
+`M_psi_eq`** (per-user direction, verified line-by-line against that ground
+truth -- this is the SAME physical `M_eq` quantity, "one object, three
+consumers"): the x/y Coriolis terms were missing the outer `R` factor that
+`m_eff[1:2]`/`d_eff[1:2]` already carry (`PhysicalLimits`: `m_eff=R*m_tilde`,
+`d_eff=R*d_raw`) -- at `R~0.05` m (wheel radius) that made the ORIGINAL
+Coriolis contribution 20x too large, not a rounding error. The COM/alpha
+cross terms (`R*(-m*aY*alpha)`/`R*(m*aX*alpha)` on x/y, and `M_psi_eq`'s own
+`-m*aY*(a_cmd[1]-psi_dot*Vy) + m*aX*(a_cmd[2]+psi_dot*Vx)` cross term on psi)
+were absent entirely. `alpha` = `a_cmd[3]` (the only angular-acceleration-like
+quantity available to this controller -- `xhat` carries no estimated actual
+alpha, so the "commanded" convention is the only option here, not a choice).
 
 `feedforward=false` gives `M_eq_cmd` no contribution at all, so PID-CT with
 the feedforward forced to zero reproduces PID-FB bit-identically by
@@ -840,6 +1335,7 @@ function Main.ControllerMod.pid_wrench!(bus, xhat, ref, pid::PIDControllerV2, dt
     if pid.log_diag
         saturated = any(abs.(I_new) .>= abs.(pid.I_max) .- 1e-9)
         push!(pid.i_sat_log, saturated)
+        push!(pid.i_util_log, abs.(I_new) ./ abs.(pid.I_max))
     end
     bus.I_pid = I_new
 
@@ -847,20 +1343,77 @@ function Main.ControllerMod.pid_wrench!(bus, xhat, ref, pid::PIDControllerV2, dt
 
     if pid.feedforward
         psi_dot, Vx, Vy = xhat[3], xhat[1], xhat[2]
-        a_ref   = SVector(pid.last_a_ref...)
-        eps_dot = SVector(pid.last_eps_dot...)
-        a_cmd   = a_ref .- pid.Kp_pos .* eps_dot
+        # a_cmd = a_ref directly (NOT a_ref - Kp_pos.*eps_dot) -- per-user
+        # direction, after verifying algebraically that the eps_dot correction
+        # double-counts the SAME error fb already corrects. Since V_cmd = V_ff
+        # - Kp_pos.*e_body and e = xhat[1:3] - V_cmd, eps_dot (however computed
+        # -- finite-difference or the analytic xhat[1:3].-V_ff substitute above)
+        # satisfies eps_dot = e - Kp_pos.*e_body EXACTLY (an algebraic identity
+        # of V_cmd's own definition, independent of noise). Substituting into
+        # the old a_cmd = a_ref - Kp_pos.*eps_dot gives
+        #   a_cmd = a_ref - Kp_pos.*e + Kp_pos.^2 .* e_body
+        # so M_eq_cmd + fb contained -(Kp + m_eff.*Kp_pos).*e (velocity error
+        # reacted to TWICE, once via fb's Kp.*e and again via a_cmd's smuggled
+        # Kp_pos.*e term, same sign) PLUS +m_eff.*Kp_pos.^2.*e_body -- a THIRD
+        # term FB never has at all, quadratic in Kp_pos. Both vanish with
+        # a_cmd = a_ref: the "commanded not reference" refinement is redundant
+        # with fb, which already corrects for V_cmd deviating from V_ff.
+        a_ref = SVector(pid.last_a_ref...)
+        # BODY-FRAME ACCELERATION CONVENTION -- the fix this block was missing.
+        # `Profiles.global_to_local_frame` (profiles.jl:999) is a PURE ROTATION,
+        # so `a_ref = R(psi)'*a_world` is the INERTIAL acceleration expressed in
+        # body coordinates (`a_body`). The inverse-dynamics formula below wants
+        # `V_dot` -- the derivative of the body-frame VELOCITY COMPONENT. Those
+        # differ by the rotating-frame term:
+        #     a_body_x = V_dot_x - psi_dot*Vy   =>   V_dot_x = a_body_x + psi_dot*Vy
+        #     a_body_y = V_dot_y + psi_dot*Vx   =>   V_dot_y = a_body_y - psi_dot*Vx
+        # asmc_wrench! DOES convert: take its Ax_eq/Ay_eq at zero tracking error
+        # (all surface-correction terms vanish) and what remains is exactly
+        #     Ax_eq -> Ax_des + psi_dot*Vy_d,   Ay_eq -> Ay_des - psi_dot*Vx_d.
+        # Without this, M_eq_cmd was short by R*m_tilde*psi_dot*V on x/y -- an
+        # error proportional to (yaw rate x speed), so it PEAKS on exactly the
+        # spin-heavy stress trajectories the screen tier is built from
+        # (5.1 N*m at psi_dot=3.8, Vy=0.6, i.e. 78% of x capability).
+        # Self-consistency check this also repairs: `com_cross_psi` below already
+        # assumed the V_dot convention (it subtracts psi_dot*Vy to recover
+        # a_body, matching M_psi_eq), while `m_eff.*a_cmd` was being fed a_body --
+        # the two rows previously assumed OPPOSITE conventions for one variable.
+        # `V_cmd` plays asmc_wrench!'s `Vy_d`/`Vx_d` role (equal at zero error).
+        a_cmd = SVector(a_ref[1] + psi_dot * V_cmd[2],
+                        a_ref[2] - psi_dot * V_cmd[1],
+                        a_ref[3])
 
+        # Coriolis + COM/alpha cross terms, matching asmc_wrench!'s Mx_eq/My_eq/
+        # M_psi_eq EXACTLY (same physical quantity, "one object, three
+        # consumers" -- brief `u_eq_horizon` note) with Ax_eq/Ay_eq/alpha_eq ->
+        # a_cmd[1]/a_cmd[2]/a_cmd[3] (this controller's "commanded" convention)
+        # and Vx_d/Vy_d -> V_cmd (already used for the drag term above).
+        # Per-user direction, verified against asmc_wrench! (controllers_v2.jl
+        # ~line 630): the x/y Coriolis terms here were missing the outer R
+        # factor that m_eff[1:2]/d_eff[1:2] already carry (PhysicalLimits:
+        # m_eff=R*m_tilde, d_eff=R*d_raw) -- at R~0.05 m (KUKA youBot wheel
+        # radius) that is a 20x-too-large Coriolis contribution, not a rounding
+        # error. The COM/alpha cross terms (R*(-m*aY*alpha)/R*(m*aX*alpha) on
+        # x/y, and the M_psi_eq COM-cross term) were absent entirely. alpha
+        # comes from a_cmd[3] (the only angular-acceleration-like quantity
+        # available here -- xhat has no estimated actual alpha).
+        R = pid.lim.R
         ms, m, aX, aY = pid.lim.ms, pid.lim.m, pid.lim.aX, pid.lim.aY
-        coriolis_x = -ms * psi_dot * Vy - m * aX * psi_dot^2
-        coriolis_y =  ms * psi_dot * Vx - m * aY * psi_dot^2
+        coriolis_x  = R * (-ms * psi_dot * Vy - m * aX * psi_dot^2)
+        coriolis_y  = R * ( ms * psi_dot * Vx - m * aY * psi_dot^2)
+        com_alpha_x = R * (-m * aY * a_cmd[3])
+        com_alpha_y = R * ( m * aX * a_cmd[3])
+        com_cross_psi = -m * aY * (a_cmd[1] - psi_dot * Vy) + m * aX * (a_cmd[2] + psi_dot * Vx)
         M_eq_cmd = SVector(
-            pid.lim.m_eff[1] * a_cmd[1] + pid.lim.d_eff[1] * V_cmd[1] + coriolis_x,
-            pid.lim.m_eff[2] * a_cmd[2] + pid.lim.d_eff[2] * V_cmd[2] + coriolis_y,
-            pid.lim.m_eff[3] * a_cmd[3] + pid.lim.d_eff[3] * V_cmd[3],
+            pid.lim.m_eff[1] * a_cmd[1] + pid.lim.d_eff[1] * V_cmd[1] + coriolis_x + com_alpha_x,
+            pid.lim.m_eff[2] * a_cmd[2] + pid.lim.d_eff[2] * V_cmd[2] + coriolis_y + com_alpha_y,
+            pid.lim.m_eff[3] * a_cmd[3] + pid.lim.d_eff[3] * V_cmd[3] + com_cross_psi,
         )
-        return M_eq_cmd .+ fb
+        W_total = M_eq_cmd .+ fb
+        pid.log_diag && push!(pid.W_log, W_total)
+        return W_total
     else
+        pid.log_diag && push!(pid.W_log, fb)
         return fb
     end
 end
@@ -1188,14 +1741,68 @@ Base.@kwdef mutable struct MPCControllerV2
     Q::SVector{3,Float64} = SVector(50.0, 50.0, 80.0)         # dead, ditto
     Np_pose::Int = 30                                         # CHANGED 15 -> 30 (brief §7.2)
 
+    # STAGE cost -- normalised by the RUNNING tolerances (pos_max/head_max),
+    # matching the outer objective's `max_pos`/`max_head` terms.
     Q_pose::SVector{6,Float64} = bryson_Q_pose(Main.TOL.pos_max, Main.TOL.head_max, tau_cl)
+
+    # TERMINAL cost seed -- normalised by the TERMINAL tolerances
+    # (pos_final/head_final), matching the outer objective's `final_pos`/
+    # `final_head` terms. `P` is the DARE solution for THIS Q, not for Q_pose.
+    #
+    # WHY: the objective's tracking metric is
+    #   (final_pos/pos_final + max_pos/pos_max + final_head/head_final + max_head/head_max)/4
+    # i.e. it demands 10x tighter TERMINAL accuracy than running accuracy on both
+    # channels. P previously inherited Q_pose's scale through the DARE, so the QP
+    # under-weighted terminal error by (pos_max/pos_final)^2 = 100x relative to
+    # what it was being scored on. Both ratios are exactly 10, so this is a clean
+    # uniform 100x on the pose weights.
+    #
+    # STABILITY IS PRESERVED, and only in this direction: the terminal-cost
+    # decrease condition must hold against the STAGE cost, and with P the DARE
+    # solution for Q_final,
+    #   (A-BK)'P(A-BK) - P = -(Q_final + K'RK) <= -(Q_pose + K'RK)  iff Q_final >= Q_pose
+    # which holds because tightening a tolerance only raises the weight. Scaling P
+    # DOWN would break the guarantee; up cannot.
+    Q_final::SVector{6,Float64} = bryson_Q_pose(Main.TOL.pos_final, Main.TOL.head_final, tau_cl)
+
     R::SVector{4,Float64}      = bryson_R(lim, motor)
 
-    S_scale::Float64 = 2.5                                    # SEARCHED (MPC_SPACE_V2, tune_controller_v2.jl)
+    # MOVED ahead of S_scale: @kwdef evaluates defaults in declaration order and
+    # S_scale now depends on rate_hz (see the struct docstring's ordering note).
+    rate_hz::Float64 = 100.0
+
+    # Must match the tuning objective's --lambda-chatter. NOT independently
+    # tunable -- it is the SAME design constant, used twice.
+    lambda_chatter::Float64 = 3.0
+
+    # S is DERIVED, not searched. Bryson-normalise the per-tick slew against the
+    # hardware ceiling, then weight it by lambda_chatter so the QP prices slew
+    # internally at the same rate the tuning objective prices chatter externally:
+    #
+    #   CHATTER_REF = 4*dV_max/f_mix  (4-wheel sum, per 1 ms probe tick)
+    #   per MPC tick, per wheel       = dV_max/rate_hz
+    #   S_jj = lambda_chatter / (dV_max/rate_hz)^2   = 3.0/2^2 = 0.75 at 100 Hz
+    #
+    # Both references are the SAME physical object (the mixer's dV_lim clamp),
+    # just per different tick, so `chatter = CHATTER_REF` occurs exactly when every
+    # wheel slews at its full rate limit. Deriving S this way means MPC RESPONDS to
+    # lambda_chatter by construction rather than having to rediscover it by search
+    # -- ASMC and PID reach the same trade numerically through the outer search
+    # over their gains; MPC is the only one with an internal optimiser that can
+    # simply be told.
+    #
+    # APPROXIMATIONS (method-section material, not hidden): the QP penalises du^2
+    # while the metric measures |du|, so the two agree at the normalisation point
+    # and not globally; and the outer tracking metric is built from max/final
+    # values while the QP minimises a sum of squares over the horizon. This is a
+    # consistently-stated design choice, NOT a proof of equivalence.
+    #
+    # rate-DEPENDENT: if rate_hz changes, S changes. CHATTER_REF does not (it is
+    # tied to f_mix).
+    S_scale::Float64 = lambda_chatter / (motor.dV_max / rate_hz)^2
     S::SVector{4,Float64} = SVector{4}(fill(S_scale, 4))
 
     P_terminal::Matrix{Float64} = zeros(6, 6)                 # filled per-tick by terminal_cost when use_terminal
-    rate_hz::Float64 = 100.0
     use_ltv::Bool = true
 
     use_u_eq::Bool     = true
@@ -1336,7 +1943,9 @@ function Main.ControllerMod.mpc_wrench!(bus, xhat, ref, params, motor, mpc::MPCC
     # --- [NEW] Riccati terminal cost on the LAST block -----------------------
     Qd = Matrix(Diagonal(repeat(collect(Qtrack), Np)))
     if mpc.use_terminal
-        P = terminal_cost(As[Np], Bm, Qtrack, mpc.R, mpc.dare_cache)
+        # Q_final (TERMINAL tolerances), NOT Qtrack (running tolerances) -- see
+        # the Q_final field docstring. The stage blocks of Qd keep Qtrack.
+        P = terminal_cost(As[Np], Bm, mpc.Q_final, mpc.R, mpc.dare_cache)
         Qd[(Np-1)*n+1:Np*n, (Np-1)*n+1:Np*n] .+= P
         mpc.P_terminal = P
     end

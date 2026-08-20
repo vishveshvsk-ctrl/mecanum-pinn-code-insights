@@ -104,19 +104,57 @@ produces for Stage 3's ratio search) takes priority; a scalar `:R_scale`/
 `:S_scale` (the original build_controller's :mpc decode contract, for a
 uniform-fill fallback) is used otherwise; else the struct default.
 """
-# ASMC_SPACE_V2 -- six tuned dimensions (instructions/asmc-v2-physical-gain-
-# bounds.md §7.3): surface slopes lam_{x,y,psi}_max + adaptation rates
-# gamma_{x,y,psi}. K_max_*, lam_*_min, mu_xy/mu_psi, and K_x0/K_y0/K_psi0 are
-# all DERIVED now (ControllerV2Mod.ASMCControllerV2) and dropped from the
-# search -- same dimensionality as v1's ASMC_SPACE, spanning different
-# directions.
+# ASMC_SPACE_V2 -- FOUR tuned dimensions: surface slopes lam_{x,y,psi}_max plus
+# tau_ceiling. K_max_*, lam_*_min, mu_xy/mu_psi and K_x0/K_y0/K_psi0 are all
+# DERIVED (ControllerV2Mod.ASMCControllerV2) and dropped from the search.
+#
+# gamma_{x,y,psi} are NOT searched. asmc-v2-physical-gain-bounds.md §7.3 specified
+# six dimensions including them (and its acceptance list still carries
+# `n_params(ASMC_SPACE_V2) == 6`), but asmc-v2-tuning-launch.md §6 SUPERSEDES it:
+# gamma was factored out of the gain-update bracket
+#
+#     dK = gamma * [ s*tanh(s/eps)*bound - c_tilde*(K/K_max)^3 - sigma_tilde*(...) ]
+#
+# so it became a pure time-scaling that no longer sets where K settles, and was
+# then fixed and removed from the search. That is a MEASURED call, not a
+# stylistic one: score varies only 0.5-1.2% across a 64x gamma sweep
+# (octagon_stress 0.7075 -> 0.7042 for gamma = 25 -> 1600).
+#
+# (The stale "six dimensions" comment previously here is the reason this needed
+# stating -- see also the reachability guard in stage_objective.jl, which now
+# ERRORS if --lambda-gamma is passed against a space with no :gamma_x.)
+#
+# DIMENSION 4 WAS `tau_ceiling`, NOW `rho_auth`. tau_ceiling set K's settling
+# level only through the CUBIC BARRIER (K_eq ~ tau_ceiling^(1/3)); with
+# `use_cubic=false` it feeds `cubic_coeff` and nothing else, so it has been
+# completely inert since the cubic was disabled -- a quarter of the search budget
+# spent on a dimension with zero gradient. It is replaced by `rho_auth`, the
+# demand-driven gain law's one scalar (ControllerV2Mod, `use_demand_k`):
+#
+#     z* = G/(G + rho_auth*eps),   G = s*tanh(s/eps)
+#
+# read as "how many boundary layers of sliding error buys HALF the available
+# authority". BOTH BOX ENDS ARE PHYSICALLY ANCHORED (see run_asmc_v2 in
+# run_stage.jl for the full derivation and the measurement behind it):
+#   lo = tanh(1) = 0.762  -- at one boundary layer, the width the controller is
+#        DESIGNED to hold, the adaptation must claim at most HALF its authority.
+#   hi = 9*3 = 27         -- 3*eps is the excursion the as-designed sigma leak
+#        ITSELF treats as "surface excited" (its gate is exp(decay_k*(1 -
+#        s^2/(9 eps^2))), unity at s=3eps). z*(3eps) = 0.1 at rho = 27 and 0.9 at
+#        rho = 3/9, so the box spans the full usable authority range at the
+#        design's own excitation scale and no more.
+# The measured-good region (rho 4-8 at frozen lam, mean tracking 0.6074/0.5977)
+# is comfortably interior, so the box does not truncate the optimum.
+#
+# WARM-START HAZARD: a run warm-started from a PRE-SWAP archive will map that
+# archive's dimension-4 coordinate (tau_ceiling in log[0.1,100]) into rho_auth's
+# log[0.5,64] and get a wrong-but-plausible rho, silently. Warm starts must not
+# cross this change; start such runs cold.
 const ASMC_SPACE_V2 = [
     ("lam_x_max",   1, :log, 0.3, 10.0),
     ("lam_y_max",   1, :log, 0.3, 10.0),
     ("lam_psi_max", 1, :log, 1.0, 20.0),
-    ("gamma_x",     1, :log, 1.0, 100.0),
-    ("gamma_y",     1, :log, 1.0, 100.0),
-    ("gamma_psi",   1, :log, 1.0, 100.0),
+    ("rho_auth",    1, :log, 0.762, 27.0),
 ]
 
 # PID_SPACE_V2 -- three tuned dimensions (instructions/pid-v2-imc-cascade-two-
@@ -126,42 +164,72 @@ const ASMC_SPACE_V2 = [
 # noise-amplification alternative lower bounds are both slack, see brief).
 # Three separate len=1 rows (not one len=3 row) because the bounds differ per
 # axis; build_controller_v2 regroups lam_inner_{x,y,psi} into lam_inner::SVector{3}.
+# LOWER BOUNDS ARE NO LONGER A DESIGN SPECIFICATION -- they are a numerical
+# guard at 3*dt (dt = 1/f_pid = 1 ms now that PID is rate-matched to the ASMC),
+# present only so a pathological eval cannot drive Kp = m_eff/lambda to infinity,
+# diverge the plant ODE and burn evaluations against the 1e6 sentinel.
+#
+# The lower bound is instead supplied ENDOGENOUSLY by the chatter term (per-user
+# direction): command noise scales as Kp*sigma_v = m_eff*sigma_v/lambda, so
+# chatter diverges as lambda -> 0 and the optimizer prices the floor itself
+# rather than inheriting one from the sample rate. Measured on the two archived
+# FB families (_tmp/check_chatter_vs_lambda_pid_fb.jl, 12 trajectories x 5 seeds),
+# the clean-stage elasticity d ln(chatter)/d ln(1/lambda) is 1.00 on psi
+# (exact 1/lambda scaling), 0.70 on x and 0.65 on y -- a real gradient on all
+# three axes, which is what makes this viable. REQUIRES --lambda-chatter > 0;
+# with lambda_chatter = 0 these bounds are NOT a design floor and every axis
+# will rail into the guard.
+#
+# The old floors were sample-rate derived (~5 periods at the inherited 100 Hz):
+# 0.05 uniform, hand-lowered to 0.01 on psi after every FB seed railed. Both are
+# obsolete at 1 kHz.
 const PID_SPACE_V2 = [
-    ("lam_inner_x",   1, :log, 0.05, 0.256),
-    ("lam_inner_y",   1, :log, 0.05, 0.114),
-    ("lam_inner_psi", 1, :log, 0.01, 0.155),   # floor lowered 0.05->0.01 (per-user
-                                                # direction): every PID v2 FB seed
-                                                # (clean and noisy) pinned lam_inner_psi
-                                                # at the 0.05 floor -- box was binding,
-                                                # not a converged interior optimum.
+    ("lam_inner_x",   1, :log, 0.003, 0.256),   # upper = tau_open, genuinely per-axis
+    ("lam_inner_y",   1, :log, 0.003, 0.114),
+    ("lam_inner_psi", 1, :log, 0.003, 0.155),
 ]
 
-# MPC_SPACE_V2 -- ONE tuned dimension (instructions/mpc-v2-bryson-weights-
-# terminal-cost.md §7.2/§9): S_scale only. Q_pose/R are DERIVED
-# (bryson_Q_pose/bryson_R at MPCControllerV2 construction, brief §6) and
-# dropped from the search entirely -- 11 -> 1 dimensions (brief §1), down
-# from the OLDER MPCDesignMod.normalized_mpc_space's 2-dim ratio search
-# (controller_tuning/mpc_design.jl, a prior Stage-3 iteration this brief
-# supersedes but does not delete).
+# MPC_SPACE_V2 -- THREE tuned dimensions: tau_cl per axis. Everything else in
+# the QP is DERIVED, so this is the whole continuous search space:
 #
-# S_scale bracket [0.25, 25] (brief §7.2): from the hard slew limit
-# max ΔV per tick = dV_max*dt = 200*0.01 = 2V; Bryson S_jj=1/(ΔV)^2 gives
-# S=0.25 at the limit (ΔV=2V) and S=25 at "very smooth" (ΔV=0.2V).
-# v1's [1e-3, 1] bracket does NOT transfer -- different Q normalization.
+#   Q_pose  = bryson_Q_pose(TOL.pos_max,   TOL.head_max,   tau_cl)   running
+#   Q_final = bryson_Q_pose(TOL.pos_final, TOL.head_final, tau_cl)   terminal seed
+#   R       = bryson_R(lim, motor)                                   physical
+#   S       = lambda_chatter / (dV_max/rate_hz)^2                    shared weight
+#   P       = DARE(A_end, Bm, Q_final, R)                            falls out
 #
-# dxNES is the WRONG tool for a single log-scaled parameter (brief §9:
-# "designed for coupled, ill-conditioned, covariance-adapting problems").
-# `MPC_S_SCALE_GRID` is the deterministic 10-point log grid a future sweep
-# script would iterate (optionally golden-section-refined) instead --
-# NOT wired into any dxNES-based optimizer here. The `Np_pose` convergence
-# sweep (brief §7.3, run BEFORE this grid, at S_scale=0.25) and the actual
-# multi-seed S_scale grid run are both deferred (matching the ASMC v2/PID v2
-# briefs' "re-tuning is a later run" precedent) -- this pass only wires the
-# derivation + search-space definition so that a later run can launch both.
+# WHY tau_cl AND NOT S_scale (this REPLACES the brief's §7.2 1-D S_scale space):
+# only RATIOS matter in a QP, so {Q,R,S} carry two independent degrees of freedom.
+# Bryson pins Q's and R's absolute scale from tolerances and limits, which used to
+# leave S_scale as the one free ratio. But S is now derived from lambda_chatter
+# (see MPCControllerV2), so that ratio is spoken for -- and searching it would
+# have let MPC discover its own chatter trade while ASMC/PID are held to the
+# shared one. What is NOT pinned is the POSITION-vs-VELOCITY weighting inside
+# Q, which is set entirely by tau_cl (q_v = q_pos*tau_cl^2). That is the real
+# remaining freedom, and it is what the older MPCDesignMod.normalized_mpc_space
+# reached for with its `q_vel_ratio` scalar.
+#
+# tau_cl was previously FROZEN at (0.15, 0.11, 0.12) -- PID v2's design
+# mid-window, described as the "shared v2 bandwidth". That is now stale: the
+# chatter-priced PID retune converged to lam_inner_psi ~0.0145 (FB) / ~0.0199
+# (CT), 6-8x away from 0.12, and tau_cl enters Q QUADRATICALLY, so MPC's yaw-rate
+# weight was 36-68x heavier than a PID-matched value. Rather than re-freeze it at
+# a number that will go stale again, it is searched.
+#
+# BOUNDS mirror PID_SPACE_V2 deliberately -- same quantity (a closed-loop time
+# constant per axis), so the two controllers' bandwidth searches sit on the same
+# footing. Upper = tau_open per axis (beyond it the loop is slower than doing
+# nothing); lower = the same 0.003 numerical guard, NOT a design floor.
+#
+# UNLIKE PID, chatter is NOT known to bound tau_cl from below. For PID the
+# mechanism is direct (Kp = m_eff/lambda, so command noise ~ 1/lambda). Here
+# tau_cl only reshapes the Q weighting, and the sign of its effect on chatter is
+# not established -- so the 0.003 guard may well bind. Watch it, as with PID.
 const MPC_SPACE_V2 = [
-    ("S_scale", 1, :log, 0.25, 25.0),
+    ("tau_cl_x",   1, :log, 0.003, 0.256),
+    ("tau_cl_y",   1, :log, 0.003, 0.114),
+    ("tau_cl_psi", 1, :log, 0.003, 0.155),
 ]
-const MPC_S_SCALE_GRID = 10.0 .^ range(log10(0.25), log10(25.0); length=10)
 
 # Cache cell for default_physical_limits() below.
 const _DEFAULT_LIM = Ref{Union{Nothing,ControllerV2Mod.PhysicalLimits}}(nothing)
@@ -204,8 +272,28 @@ function build_controller_v2(ctrl::Symbol, kw::NamedTuple)
         lim = get(kw, :lim, default_physical_limits())
         asmc_kw = Dict{Symbol,Any}(:lim => lim)
         for k in (:lam_x_max, :lam_y_max, :lam_psi_max, :gamma_x, :gamma_y, :gamma_psi,
-                 :eps, :eps_psi, :tau_relax, :tau_ceiling, :decay_k, :v_max_axis,
-                 :use_scheduled_kmax, :kmax_lpf_tau, :start_at_floor)
+                 :eps, :eps_psi, :noise, :tol_v, :tol_rate, :k_eps,
+                 :eps_floor_xy, :eps_floor_psi,
+                 :tau_relax, :tau_ceiling, :decay_k, :v_max_axis,
+                 :use_scheduled_kmax, :kmax_lpf_tau, :start_at_floor, :kmax_sched_floor,
+                 :kmax_contact_b, :use_demand_k, :rho_auth, :z_den_frac, :enforce_k_floor,
+                 # K_max_base is DERIVED (capability_wrench(lim)), NOT a tuning
+                 # parameter -- it is the wrench the friction circle can deliver.
+                 # WARNING, measured: overriding it is a NO-OP under the default
+                 # use_scheduled_kmax=true, because the per-tick ceiling comes from
+                 # kmax_schedule(asmc.lim, ...) which recomputes capability_wrench
+                 # (lim) internally; K_max_base then survives only in the
+                 # never-binding degenerate floor (0.05 .* K_max_base). A 4x sweep
+                 # of it produced bit-identical chatter/tracking/score
+                 # (_tmp/kmax_sweep.jl) for exactly this reason. To move the
+                 # ceiling you must either set use_scheduled_kmax=false (which
+                 # also disables the state-dependent scheduling) or scale `lim`
+                 # itself. Forwarded for that first case only.
+                 :K_max_base,
+                 # log_K enables the per-tick K / K_max_sched / W / Msw logging
+                 # (brief §10's "max(K) logged per axis" check, still outstanding).
+                 # Zero cost when false, which is the default.
+                 :log_K, :use_cubic)
             haskey(kw, k) && (asmc_kw[k] = getfield(kw, k))
         end
         return ControllerV2Mod.ASMCControllerV2(; asmc_kw...), nothing, nothing
@@ -230,9 +318,23 @@ function build_controller_v2(ctrl::Symbol, kw::NamedTuple)
         lim   = get(kw, :lim, default_physical_limits())
         motor = get(kw, :motor, Main.PlantMod.MotorParams())
         mpc_kw = Dict{Symbol,Any}(:lim => lim, :motor => motor)
-        for k in (:tau_cl, :Np, :Q, :Np_pose, :Q_pose, :R, :S_scale, :S,
-                 :P_terminal, :rate_hz, :use_ltv, :use_u_eq, :use_terminal, :log_diag)
+        # MPC_SPACE_V2's decode gives 3 scalar keys (tau_cl_x/y/psi) -- regroup
+        # into tau_cl::SVector{3} unless the caller supplied it directly. Exactly
+        # the PID_SPACE_V2 lam_inner_x/y/psi precedent above.
+        if !haskey(kw, :tau_cl) && haskey(kw, :tau_cl_x)
+            mpc_kw[:tau_cl] = SVector(kw.tau_cl_x, kw.tau_cl_y, kw.tau_cl_psi)
+        end
+        for k in (:tau_cl, :Np, :Q, :Np_pose, :Q_pose, :Q_final, :R, :S_scale, :S,
+                 :lambda_chatter, :P_terminal, :rate_hz, :use_ltv, :use_u_eq,
+                 :use_terminal, :log_diag)
             haskey(kw, k) && (mpc_kw[k] = getfield(kw, k))
+        end
+        # Q_pose/Q_final/S are @kwdef defaults computed FROM tau_cl/lambda_chatter/
+        # rate_hz. Passing a stale explicit value would silently override the
+        # derivation the search is driving, so drop them unless the caller is
+        # deliberately pinning (they are absent from MPC_SPACE_V2's decode).
+        if haskey(mpc_kw, :tau_cl)
+            for k in (:Q_pose, :Q_final); delete!(mpc_kw, k); end
         end
         return nothing, ControllerV2Mod.MPCControllerV2(; mpc_kw...), nothing
     else

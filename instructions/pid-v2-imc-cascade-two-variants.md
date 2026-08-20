@@ -13,11 +13,15 @@ Four changes to the cascade PID, and one new variant:
 
 1. **IMC reparameterization.** 18 searched gains collapse to **3 tuned parameters**
    (`λ_inner` per axis). Every other gain is derived from the plant model.
-2. **`V_cmd` limited by the combined friction-circle gate (E54).** The outer loop
-   currently emits an unbounded velocity command. A single quadratic gate over
-   velocity *and* acceleration together yields a scalar scale factor `γ` that
-   preserves the demanded acceleration direction. This is the *only structural*
-   change, and it is what makes inner-loop saturation preventable at all.
+2. **`V_cmd` limited by the combined friction-circle gate (E54), applied to the
+   *correction only*.** The outer loop currently emits an unbounded velocity
+   command. `V_cmd = V_ff + γ·correction`: the feedforward passes through intact
+   (it is measured feasible) and a single quadratic gate over velocity *and*
+   acceleration scales only the position correction, preserving its direction.
+   The gate must never be fed the command's own previous value — see §6, that
+   form is an exponential filter with a positive-feedback loop. This is the
+   *only structural* change, and it is what makes inner-loop saturation
+   preventable at all.
 3. **`I_max` from measured p95** of the wrench the integral must supply — replacing a
    default that permits ~450× the deliverable integral authority.
 4. **`Kd = Kd_pos = 0`**, derived rather than assumed.
@@ -102,8 +106,9 @@ measured statistic.
 - **Type:** function
 - **Responsibility:** Limit the outer loop's velocity command via the combined
   friction-circle gate (E54) — the structural fix.
-- **Inputs:** `lim::PhysicalLimits`, `xhat` (needs `V̂x`, `V̂y`, `ψ̂̇`), `dt`,
-  `vcmd_prev::SVector{3}`, `vcmd_raw::SVector{3}`
+- **Inputs:** `lim::PhysicalLimits`, `xhat` (needs `V̂x`, `V̂y`, `ψ̂̇`),
+  `lam_inner::SVector{3}`, `V_ff::SVector{3}`, `correction::SVector{3}`.
+  **No `dt`, no `vcmd_prev`** — the gate must not see the command's own history (§6)
 - **Outputs:** `(V_cmd::SVector{3,Float64}, gamma::Float64, guard_hit::Bool)`
 - **Depends on:** `PhysicalLimits`, and the same binding-wheel gate as `kmax_schedule`
 
@@ -188,7 +193,7 @@ function imc_gains(lim::PhysicalLimits, lam_inner::SVector{3,Float64}, N::Real) 
 
 
 """
-    vcmd_limits(lim, xhat, dt, vcmd_prev, vcmd_raw) -> (V_cmd, gamma, guard_hit)
+    vcmd_limits(lim, xhat, lam_inner, V_ff, correction) -> (V_cmd, gamma, guard_hit)
 
 Feasibility-limited velocity command, using the binding-wheel gate (E54) as a SINGLE
 COMBINED constraint over velocity and acceleration together.
@@ -197,34 +202,69 @@ THIS IS THE ONLY STRUCTURAL CHANGE IN THIS BRIEF. v1's pose_outer_loop emits V_c
 no bound at all, so a large pose error commands an arbitrarily large velocity setpoint,
 the inner loop saturates, and the integral winds up.
 
-PER-TICK ALGORITHM
+PER-TICK ALGORITHM -- SCALE THE CORRECTION, NEVER THE COMMAND'S OWN HISTORY
 
-  1. Implied acceleration demand -- what the outer loop is actually asking of the plant:
+  1. Split V_cmd into the part that is known feasible and the part that needs limiting:
 
-         a_req = (vcmd_raw - vcmd_prev) / dt
+         V_ff       = reference velocity (body frame)     <- MEASURED feasible, passes through
+         correction = -Kp_pos .* e_body                   <- the only thing that gets scaled
 
-     a_req mixes the reference's own acceleration with the position correction. The
-     platform cannot distinguish them and neither should the gate.
+  2. Implied acceleration of the CORRECTION alone. The inner loop closes a velocity
+     offset with time constant lam_inner (IMC design), so a velocity correction `c` is
+     a request for acceleration:
 
-  2. Demand vector b(v, a_req)  (E55), at the ESTIMATED velocity:
+         a_corr = correction ./ lam_inner
 
-         b_x = m_s*a_x - m*a_Y*alpha - m_s*psidot*V_y - m*a_X*psidot^2
-         b_y = m_s*a_y + m*a_X*alpha + m_s*psidot*V_x - m*a_Y*psidot^2 - 110.0*V_y
-         b_O = -m*a_Y*a_x + m*a_X*a_y + I_s*alpha + m*psidot*(a_X*V_x + a_Y*V_y) - 2.20*psidot
-
-  3. Binding-wheel gate (E54):
+  3. Demand vector b(V_hat, a_corr) (E55) and the binding-wheel gate (E54), unchanged:
 
          F_perp3 = kappa*(V_y - h*psidot)                velocity only -- fixed this tick
-         F_par3  = 0.354*(b_x + b_y) - 0.918*b_O         affine in a_req
+         F_par3  = 0.354*(b_x + b_y) - 0.918*b_Omega     affine in a_corr
          budget  = (s*mu_N3)^2 - F_perp3^2               s = 0.9
 
-  4. Scale factor -- F_par3 is AFFINE in a_req, so split it and solve one scalar equation:
+  4. Largest gamma in [0,1] with |F_par3(gamma)| <= sqrt(budget)  (F_par3 is affine, so
+     this is one scalar solve, no Jacobian).
 
-         F_par3(gamma) = F_par3(0) + gamma*dF     F_par3(0) = velocity-only part
-                                                  dF        = acceleration contribution
-         solve |F_par3(gamma)| = sqrt(budget)     for gamma in [0, 1]
+  5. Apply:   V_cmd = V_ff + gamma * correction
 
-  5. Apply:   V_cmd = vcmd_prev + gamma * a_req * dt
+WHY vcmd_prev MUST NOT APPEAR -- this is the single most important property of this
+function, and getting it wrong cost three debugging rounds.
+
+An earlier version computed the demand from the command's own previous value,
+`a_req = (vcmd_raw - vcmd_prev)/dt`, then wrote the throttled result back into
+vcmd_prev. Substituting one into the other:
+
+    V_cmd = (1 - gamma)*vcmd_prev + gamma*vcmd_raw
+
+which is an EXPONENTIAL FILTER on the velocity command with tau ~ dt/gamma. At
+gamma = 0.07 that already equals lam_inner; at gamma = 0.02 it is 3-4x SLOWER than the
+loop it feeds. And it is POSITIVE FEEDBACK:
+
+    gamma small -> V_cmd lags -> tracking error grows -> vcmd_raw moves further from
+    vcmd_prev -> demand grows -> gamma shrinks -> repeat
+
+Measured runaway on octagon_stress (clean, default gains): gamma_min 0.000, gamma < 1
+on 78% of ticks, PID-CT tracking 257.58 against 0.1994 with the gate bypassed -- a
+1290x degradation caused entirely by the gate. It did not bite PID-FB, whose gentler
+demands never enter the loop, so the defect masqueraded as "feedforward is broken".
+
+`a_corr` depends only on the CURRENT tracking error, so vcmd_prev appears nowhere and
+the loop is structurally absent. Retain the field for diagnostics if useful; never let
+it feed the gate.
+
+SAFE FLOOR instead of degenerate branches. If the circle is already fully consumed by
+the current STATE (`budget < 0`, or `|F_par3_0| > sqrt(budget)` -- neither of which any
+scaling of the command can change), return `V_cmd = V_ff` with gamma = 0 and
+guard_hit = true. This is NOT a freeze: V_ff is the reference, the reference is feasible
+by construction, so the floor tracks a reachable target and recovery proceeds on its
+own. Freezing at vcmd_prev instead -- a stale value unrelated to where the reference now
+is -- is what latched the guard true for 68% of a run.
+
+THE FEASIBILITY ASSERTION THIS RESTS ON: passing V_ff through unthrottled is only sound
+because every reference in the tier lies inside the envelope. Verified across all 12
+train_full references: peak |V_y - h*psidot| = 0.694 against the 0.805 m/s threshold
+(86% of limit, coupled_vomega_stress, the tightest entry). ASSERT THIS AT TRAJECTORY-SET
+CONSTRUCTION so a future entry that violates it fails loudly rather than silently
+disabling the floor's guarantee.
 
 WHY A SINGLE SCALAR gamma, NOT PER-AXIS CLIPPING: scaling all three components by the
 same factor PRESERVES THE DIRECTION of the demanded acceleration -- the platform keeps
@@ -245,12 +285,69 @@ NORMALIZER CAUTION: do NOT use V_y_crit = 0.63 m/s as the velocity scale. That i
 COMBINED steady-strafe point, where F_par is forced equal to F_perp. The pure-F_perp
 intercept is mu_N3/kappa = 0.894 m/s. Using 0.63 double-counts.
 
-DEGENERATE CASES
-  - budget < 0 (F_perp3 alone exceeds the circle): set gamma = 0, hold V_cmd, return
-    guard_hit = true. The platform is already outside its envelope -- a reportable
-    finding, not something to silence.
+DEGENERATE CASES -- THE DEGENERATE BRANCH MUST RECOVER, NOT HOLD
+
+  - budget < 0 (F_perp3 alone exceeds the margined circle, i.e.
+    |V_y - h*psidot| > s*mu_N3/kappa = 0.805 m/s). The platform's VELOCITY state is
+    already outside the envelope.
+
+    DO NOT "set gamma = 0 and hold V_cmd" -- that LATCHES. vcmd_prev is the very
+    command that put the platform outside, so freezing it removes the only mechanism
+    that could bring the state back, and guard_hit stays true for the rest of the run.
+
+    This was measured, not hypothesised. On coupled_vomega_stress (clean, default
+    gains) the hold-version fired the guard on 67.8% of ticks and scored tracking
+    95.99, against 0.7963 with the gate bypassed -- a 120x degradation. The reference
+    is FEASIBLE (peak |V_y - h*psidot| = 0.694 against the 0.805 threshold, 86% of
+    limit and the tightest entry in the tier), so the gate was latching on transient
+    OVERSHOOT, not on an impossible trajectory. It fired only for PID-CT, because only
+    the better-tracking variant got close enough to the envelope to trip it -- so the
+    hold-version systematically punishes the variant that tracks better.
+
+    CORRECT BEHAVIOUR: F_perp3 depends on VELOCITY ONLY, so admit exactly those
+    acceleration demands that SHRINK the violation and block the rest.
+
+        d|F_perp3|/dt  is proportional to  sign(F_perp3) * (a_y - h*alpha)
+
+        reduces = sign(F_perp3) * (a_req[2] - h*a_req[3]) < 0
+        gamma   = reduces ? 1 : 0
+        V_cmd   = vcmd_prev + gamma*a_req*dt
+        guard_hit = true          <- STILL reported; the condition stays diagnosable,
+                                     what changes is that it is now RECOVERABLE
+
+  - |F_par3_0| > sqrt(budget) with budget >= 0 (even a = 0 already demands more
+    parallel traction than the circle allows).
+
+    THIS IS THE BRANCH THAT ACTUALLY FIRES IN PRACTICE, and it must recover too.
+    Measured on coupled_vomega_stress: branch A never triggers at all (peak
+    |V_y - h*psidot| = 0.657 against the 0.805 threshold) while guard_hit is true on
+    67.8% of ticks -- so all of the latching came from this branch. Holding is wrong
+    here for the same reason as A: F_par3_0 is a function of the current VELOCITY
+    (Coriolis plus the drag terms in `_b`), so freezing the command freezes the
+    velocity, which keeps F_par3_0 over budget indefinitely.
+
+    CORRECT BEHAVIOUR: the constraint cannot be SATISFIED this tick, but it can be
+    moved toward satisfaction. F_par3 is affine in gamma, so pick the gamma in [0,1]
+    that MINIMISES |F_par3| -- the closest approach to feasibility the demanded
+    acceleration direction permits:
+
+        gamma = (dF == 0) ? 0 : clamp(-F_par3_0/dF, 0, 1)
+        V_cmd = vcmd_prev + gamma*a_req*dt
+        guard_hit = true
+
+    Effect (coupled_vomega_stress, clean, default gains): PID-CT tracking
+    95.99 -> 2.7668 and guard_hit 67.8% -> 38.1%.
+
+    Keep the two branches SEPARATE -- they have different constraint structures
+    (A is velocity-only and cannot be affected by gamma within the tick; B is affine
+    in gamma). Collapsing them into one `||` condition hides which one is firing,
+    which is exactly what delayed this diagnosis.
+
   - vcmd_prev must persist across ticks and initialize to V_ff(0), NOT zero, or tick one
     demands a huge acceleration and gamma collapses spuriously.
+
+The gate stays ACTIVE for BOTH variants. It is the saturation guard, and the
+FB-vs-CT comparison is run with it on in both cases.
 
 RELATION TO THE MAGNITUDE CLAMP: this gate enforces the velocity envelope on its own --
 as V_y approaches its intercept, budget -> 0 and V_cmd stops rising. The separate
@@ -263,9 +360,9 @@ Build it once in PhysicalLimits. The two controllers differ only in what they do
 result: the ASMC distributes a CEILING across axes via alloc_ratio, the PID scales a
 DEMAND VECTOR by gamma.
 """
-function vcmd_limits(lim::PhysicalLimits, xhat, dt::Real,
-                     vcmd_prev::SVector{3,Float64},
-                     vcmd_raw::SVector{3,Float64}) end
+function vcmd_limits(lim::PhysicalLimits, xhat, lam_inner::SVector{3,Float64},
+                     V_ff::SVector{3,Float64},
+                     correction::SVector{3,Float64}) end
 
 
 """
@@ -504,6 +601,27 @@ I_max (PID-CT)            = (  0.052, 0.017, 0.083)
       `a_req` (per-axis clipping would break this)
 - [ ] **`γ = 1` in normal tracking.** Log the fraction of ticks with `γ < 1` and with
       `guard_hit`; both should be small outside transients and initialization
+- [ ] **The guard does not latch.** On `coupled_vomega_stress` (clean, default gains),
+      PID-CT must score **in the same order as PID-FB**. Reference values:
+
+      | version | CT tracking | CT guard% | FB tracking | FB guard% |
+      |---|---|---|---|---|
+      | hold (defective) | 95.99 | 67.8% | 2.4505 | 0.0% |
+      | recovering | 2.7668 | 38.1% | 2.4505 | 0.0% |
+
+      Note the criterion is **not** "guard fraction near zero." On a stress trajectory
+      the gate legitimately stays active — 38% here — because the maneuver genuinely
+      approaches the friction circle. What distinguishes a latch from correct limiting
+      is the *score*, not the guard rate.
+- [ ] **Guard exits once entered.** In a run where `guard_hit` fires, confirm it
+      returns to `false` within a bounded number of ticks rather than staying true to
+      the end of the trajectory. A monotonically-true `guard_hit` after first entry is
+      the latch signature regardless of what the score looks like.
+- [ ] **Guard asymmetry is expected and must be reported, not tuned away.** The gate
+      fires far more for PID-CT than PID-FB (38.1% vs 0.0% here) because only the
+      better-tracking variant actually reaches the demanding states. This is the gate
+      working as intended; record the per-variant `guard_hit` fractions alongside the
+      scores so the comparison is read with that context.
 - [ ] **Variant equivalence:** `PID-CT` with the feedforward forced to zero reproduces
       `PID-FB` bit-identically
 - [ ] **`n_params(PID_SPACE_V2) == 3`**

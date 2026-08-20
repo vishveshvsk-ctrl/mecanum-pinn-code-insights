@@ -1,0 +1,12 @@
+snapshot: 2026-08-17 04:04:49   launched: 2026-08-16 19:41:32
+run            evals     tier    best_so_far
+seed1/ct          80   screen 0.19145975367948959
+seed1/fb          87   screen 0.16192141509337693
+seed2/ct          81   screen 0.18842123221708296
+seed2/fb          70     full 0.16222030272020266
+seed3/ct          83   screen 0.18871434419624145
+seed3/fb          82   screen 0.16228195140075802
+seed4/ct          83     full 0.1883480291509581
+seed4/fb          84   screen 0.16516671660026122
+seed5/ct          78   screen 0.18922243322153098
+seed5/fb          85   screen 0.1622244963948207

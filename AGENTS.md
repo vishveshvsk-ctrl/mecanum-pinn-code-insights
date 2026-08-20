@@ -81,7 +81,13 @@ Each run writes a **JLD2 sidecar** with full state, params, ASMC config, `cfg`, 
 
 ## 6. Windows / WSL live-data execution model
 
-The git working directory (`/home/vishveshvsk07/mecanum-pinn-code-insights`) is **not** the live data location. Because the large simulation dataset is kept in only one place, the authoritative runtime tree is the Windows-synced folder mounted under WSL:
+**Current session is running in the Windows tree:**
+
+```
+C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights\
+```
+
+This is the authoritative live-data location. The git working directory under WSL (`/home/vishveshvsk07/mecanum-pinn-code-insights`) is **not** the live data location; it is used only for transport and post-run archival. Because the large simulation dataset is kept in only one place, reads/writes of live data must use the Windows paths above or the equivalent WSL mount:
 
 ```
 /mnt/c/Users/vishv/OneDrive/Desktop/Vishvesh_Data/VNIT/mecanum_pinn_head/code_insights/
@@ -95,9 +101,24 @@ C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\
 
 ### Hard rules for live runs
 
-1. **Live status checks** — always read from the `/mnt/c/.../code_insights/` counterpart, never from the git working directory. Relevant files include `sweep_status.txt`, per-run `.log` files, and any JSON status dumps in `_parallel_logs_*/` directories.
+1. **Live status checks** — always read from the Windows tree (or its `/mnt/c/.../code_insights/` WSL counterpart), never from the git working directory. Relevant files include `sweep_status.txt`, per-run `.log` files, and any JSON status dumps in `_parallel_logs_*/` directories.
 2. **Training / simulation / sweep code** — whenever the task involves a non-trivial runnable script (Python or Julia), produce **two artifacts**:
-   - The script itself, written against the `/mnt/c/.../code_insights/` layout.
+   - The script itself, written against the Windows tree layout.
    - An accompanying `.bat` file that runs the same script from Windows (using the equivalent `C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\code_insights\` path).
 3. **No duplicate large datasets** — scripts must read/write data in the single Windows-mounted tree. Do not design workflows that copy `../data/` or `.arrow` corpora into the git working directory.
-4. **Git as transport + post-run archive** — commit scripts and `.bat` files to the repo; the user will pull/transfer them into the `/mnt` tree for execution. While a run is **live**, logs/status files exist only in the `/mnt` tree. After a run **completes**, final logs and status files are pushed to git so the repo has the archived record.
+4. **Git as transport + post-run archive** — commit scripts and `.bat` files to the repo; the user will pull/transfer them into the Windows tree for execution. While a run is **live**, logs/status files exist only in the Windows tree. After a run **completes**, final logs and status files are pushed to git so the repo has the archived record.
+
+## 7. Environment executables
+
+Use these exact executables for this project. Do not fall back to system-wide or WSL-side installations.
+
+| Purpose | Executable |
+|---|---|
+| Python (no torch) | `C:\Users\vishv\claude-venv\mecanum\Scripts\python.exe` |
+| Python (with torch) | `C:\Users\vishv\miniforge3\envs\myenv\python.exe` |
+| Julia | `C:\Users\vishv\.julia\juliaup\julia-1.12.5+0.x64.w64.mingw32\bin\julia.exe` |
+
+Notes:
+- The no-torch Python virtualenv lives under the `claude-venv` parent directory at `claude-venv\mecanum`.
+- The torch Python environment is the `myenv` conda environment inside Miniforge3.
+- Julia is installed and version-managed via Juliaup.

@@ -28,30 +28,46 @@ export ESKFEstimatorV2, gauss_markov_q, derive_process_noise, apply_flow!
 # TimeConstantQ — derive nuisance-state Q entries + decay rates from physics
 # =============================================================================
 """
-    gauss_markov_q(tau, sigma, dt) -> (q_tick, decay_per_tick)
+    gauss_markov_q(tau, sigma, dt) -> (q_tick, decay_rate)
 
-Per-tick process-noise increment and decay factor for a first-order
-Gauss-Markov (Ornstein-Uhlenbeck) state with correlation time `tau` and
-stationary std `sigma`, discretized over one tick of length `dt`
-(`dt << tau` assumed, matching `tau ~ 0.1 s` vs `dt = 1 ms`):
+Per-tick process-noise increment and CONTINUOUS-TIME decay rate for a
+first-order Gauss-Markov (Ornstein-Uhlenbeck) state with correlation time
+`tau` and stationary std `sigma`, discretized over one tick of length `dt`
+(`dt << tau` assumed, matching `tau ~ 0.06 s` vs `dt = 1 ms`):
 
-    x_{k+1} = (1 - decay_per_tick)*x_k + w_k,   Var(w_k) = q_tick
+    dx/dt  = -decay_rate * x + w
+    x_{k+1} = (1 - dt*decay_rate)*x_k + w_k,   Var(w_k) = q_tick
 
-    decay_per_tick = dt/tau                  (goes on A's diagonal, NEGATIVE
-                                               self-term: A[i,i] = -decay)
-    q_tick         = 2*sigma^2/tau * dt      (preserves the stationary
-                                               variance sigma^2 in the small-
-                                               dt/tau limit)
+    decay_rate = 1/tau                 (goes on A's diagonal, NEGATIVE
+                                         self-term: A[i,i] = -decay_rate.
+                                         A is CONTINUOUS-TIME -- F = I + dt*A
+                                         then carries the correct per-tick
+                                         factor 1 - dt/tau)
+    q_tick     = 2*sigma^2/tau * dt    (per-tick; preserves the stationary
+                                         variance sigma^2 in the small-
+                                         dt/tau limit)
+
+BUG FIX (cross-eval iteration): this previously returned the PER-TICK factor
+`dt/tau` as the value for A's diagonal, but F = I + dt*A applies dt a second
+time, so the effective per-tick decay was dt^2/tau ~ 1.7e-5 (tau_eff ~ 60 s
+instead of the intended 0.06 s) -- the mean reversion was effectively absent
+and slip remained a near-random-walk in the covariance propagation, like v1.
+`q_tick` was and remains correct. Physical cross-check of tau: the LuGre
+contact relaxes over the breakaway deflection delta* = mu_s/sigma0 ~ 0.34 mm,
+so tau_slip = delta*/|s| ~ 34 ms at the Stribeck speed v_str = 0.01 m/s --
+consistent with the measured 0.06 s.
 
 WHY BOTH (brief §6): a pure random walk has no stationary variance and
-wanders unboundedly; physically, slip returns to zero when grip is restored.
-Setting Q alone is not sufficient — the decay term must ALSO go into A, or
-the "time constant" has no representation in the model.
+wanders unboundedly; physically, slip returns to zero when grip is restored
+(the contact patch re-seats into the elastic microslip regime once the
+inducing torque ends). Setting Q alone is not sufficient -- the decay term
+must ALSO go into A, or the "time constant" has no representation in the
+model.
 """
 function gauss_markov_q(tau::Real, sigma::Real, dt::Real)
-    decay_per_tick = dt / tau
+    decay_rate = 1 / tau
     q_tick = 2 * sigma^2 / tau * dt
-    return q_tick, decay_per_tick
+    return q_tick, decay_rate
 end
 
 """
@@ -238,7 +254,12 @@ function Main.EstimatorMod.estimator_update!(bus, y, est::ESKFEstimatorV2, param
     x[5] = spsi + dt * ( v3*cpsi)
     x[6] += dt * (v1*cpsi - v2*spsi)
     x[7] += dt * (v1*spsi + v2*cpsi)
-    # bx,by,bg constant in prediction; sx,sy mean-revert via A below (not held constant)
+    # OU mean-reversion of the slip STATE itself (matches the covariance-side
+    # decay in A below; previously covariance-only -- state/covariance ran
+    # different process models, see chat-handoff/eskf_v4_yawaccel_tuning_handoff.md)
+    x[10] *= (1 - dt/est.tau_slip)
+    x[11] *= (1 - dt/est.tau_slip)
+    # bx,by,bg constant in prediction
 
     # --- 2. Error-covariance propagation ------------------------------------
     z = Main.EstimatorMod._wheel_body_velocity(y, est.wheel_H)

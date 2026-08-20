@@ -123,7 +123,7 @@ function make_base_cfg(est_cfg::NamedTuple, tracking::Symbol, use_pose_fix::Bool
         pose_fix_tier  = pose_fix_tier,
         f_est          = est_cfg.rate_hz,
         f_mpc          = 100.0,
-        f_pid          = 100.0,
+        f_pid          = 1000.0,   # rate-matched to the ASMC; see HybridConfig
         f_fuzzy        = 50.0,
         f_mix          = 1000.0,
         sensor_seed    = seed,

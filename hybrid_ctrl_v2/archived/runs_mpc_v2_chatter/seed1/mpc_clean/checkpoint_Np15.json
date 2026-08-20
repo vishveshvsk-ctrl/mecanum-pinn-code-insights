@@ -1,0 +1,21 @@
+{
+  "current_gains": {
+    "tau_cl_psi": 0.06061186817764623,
+    "lambda_chatter": 3.0,
+    "Np_pose": 15,
+    "tau_cl_x": 0.003078164317188607,
+    "tau_cl_y": 0.1049965540071084
+  },
+  "best_gains": {
+    "tau_cl_psi": 0.15477516426401078,
+    "lambda_chatter": 3.0,
+    "Np_pose": 15,
+    "tau_cl_x": 0.003095416050520113,
+    "tau_cl_y": 0.035295796967844566
+  },
+  "tier": "screen",
+  "iter": 30,
+  "timestamp": "2026-08-14T03:41:35.825",
+  "current_score": 39.0016018326154,
+  "best_score": 35.78177286639714
+}

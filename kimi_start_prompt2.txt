@@ -1,0 +1,40 @@
+We are working on the Mecanum PINN digital twin project (KUKA youBot four-Mecanum-wheel omnidirectional platform, IMECE 2026 paper). This session is CONTROLLER TUNING / CONTROL DESIGN — the Julia closed-loop side. It is NOT PINN training and NOT data generation; ignore the arrow/dataset workflow unless I say otherwise. (kimi_start_prompt.txt is the data-generation/PINN version of this file.)
+
+Before doing anything, read these for context:
+1. AGENTS.md — hard rules and quick reference
+2. PROJECT_LAYOUT.md — detailed file hierarchy and authority map
+3. The relevant chat-handoff/*.md — these tasks are almost always continuations. Current thread: chat-handoff/asmc_v2_switching_authority_limiting_handoff.md
+
+What this subsystem is: four controllers (ASMC, PID-CT, PID-FB, MPC) run against the 39-D plant through a shared scheduler, tuned by a black-box optimizer against one scalar objective. The point of the current work is a FAIR comparison between them, so anything that makes one controller's objective differ from another's is a bug, not a detail.
+
+The objective (tune_controller.jl / stage_objective.jl):
+- score = tracking + LAMBDA_CE*(ce/V_MAX) + lambda_chatter*(chatter/CHATTER_REF) + recovery_weight*recovery
+- LAMBDA_CE = 0.05, V_MAX = 24.0, CHATTER_REF = 0.8 V/ms (= 4*dV_max/f_mix), lambda_chatter = 3.0 in current runs
+- tracking is tolerance-normalised (TOL): 1.0 means "exactly at target", lower is better
+- chatter = mean per-tick 4-wheel-summed |delta v_cmd|, hard-capped at 0.8 by the mixer's slew clamp
+
+File authority:
+- tune_controller.jl, controllers.jl and everything under hybrid_ctrl/ (v1) are NEVER edited. That is a hard preservation constraint — v1 behaviour must stay byte-for-byte reproducible. New behaviour goes in hybrid_ctrl_v2/ as new functions/types/dispatch.
+- hybrid_ctrl_v2/controllers_v2.jl holds the v2 controllers; tune_controller_v2.jl holds the search spaces and build_controller_v2; controller_tuning/ holds the objective, run_stage.jl driver and trajsets.
+- runs_*/ directories under hybrid_ctrl_v2/ are outputs. Never hand-edit best_config.json / trace.csv / checkpoint.json — an existing best_config.json means a converged seed.
+- Temp/scratch goes in _tmp/ and is cleaned up after. Never write data into the code root or ../data/.
+
+Key things to remember:
+- New behaviour goes behind a default-OFF flag so running tunes and archived configs are undisturbed. Add the flag to build_controller_v2's forwarding key list or it will silently never reach the controller.
+- THE HOUSE FAILURE MODE IS SILENT INERTNESS. Eight instances found so far: CLI flags parsed then never forwarded, penalties gated on keys the search space doesn't produce, docstrings describing search spaces the array doesn't implement, a trajset with zero step_hold entries making recovery_weight identically zero. None of them error. stage_objective.jl's _assert_terms_reachable now errors on unreachable weights — extend it rather than adding new silent paths.
+- VERIFY WITH DELTA-TESTS, not parse checks. Build the objective at weight 0 vs non-zero on ONE trajectory and assert the score differs by exactly the expected term. See _tmp/verify_objective_terms.jl and _tmp/verify_lambda_chatter_wired.jl. A test where both sides are zero passes vacuously and is worse than no test.
+- Measure before believing. Four ASMC parameters (gamma, tau_ceiling, tau_relax, K_max override) were all assumed live and measured inert over 16x-100x sweeps. Sweep a parameter before spending a search dimension on it.
+- Cap parallelism at <=10 Julia processes (machine: 16 logical cores, 40 GB). One process per seed, single-threaded; BLAS is pinned to 1 thread deliberately for reproducibility — do not raise it.
+- For long runs (>20 min) start keep_awake.py in the background: Modern Standby kills idle compute ~30 min in, even on AC.
+- Use Unicode + code blocks for math in responses, not LaTeX $...$.
+
+Julia environment:
+- Run everything from code_insights/ with: julia --project=. <script>
+- Project.toml/Manifest.toml are version-locked. NO NEW PACKAGES — if something needs a filter or a solver, hand-roll it (there is no DSP.jl).
+- Diagnostic scripts live in _tmp/ and follow the pattern: include hybrid_ctrl_v2/tune_controller_v2.jl, then controller_tuning/trajsets.jl and controller_tuning/stage_objective.jl.
+
+Practical notes that will otherwise waste your time:
+- Julia block-buffers stdout when redirected, so a log file looks empty until the run ends. Progress bars go to stderr and appear immediately — count occurrences of "hybrid run 100%" to track progress (1 per trajectory simulation). Add flush(stdout) after each printed row in sweep scripts.
+- Cost calibration: one 12-trajectory objective evaluation is ~3.5-4 min for ASMC/PID and ~5-8 min for MPC; seeds plateau at ~70-180 evals. Budget accordingly before launching a 5-seed wave.
+- run_mpc runs its whole Np grid sequentially INSIDE each seed, so one seed is len(np_grid) complete searches back to back.
+- Launch waves via the .bat files in hybrid_ctrl_v2/ (run_stage_*_chatter.bat); they take variant/stage/nseeds arguments and wire --warm-from for the noisy stage.

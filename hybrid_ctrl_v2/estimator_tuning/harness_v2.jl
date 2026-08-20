@@ -18,8 +18,10 @@ using LinearAlgebra
 using TOML
 using DataFrames
 using Arrow
+using Random
 
-export EstimatorLogV2, run_and_log_v2, build_estimator_v2, run_and_log_replay_v2
+export EstimatorLogV2, run_and_log_v2, build_estimator_v2, build_estimator_v3, run_and_log_replay_v2,
+       segmented_replay_trajset, mu0p5_train12_replay_trajset
 
 """
     EstimatorLogV2
@@ -44,8 +46,10 @@ end
 """
     build_estimator_v2(est_cfg, suite) -> ESKFEstimatorV2
 
-`est_cfg` is `ParamSpaceV2Mod.apply_params_v2!`'s decoded NamedTuple
-(P0_scale, pose_Qn, slip_R_inflate, pose_slip_gain). `tau_slip`/`sigma_slip`/
+`est_cfg` is `ParamSpaceV2Mod.apply_params_v2!`'s / `ParamSpaceV3Mod.apply_params_v3!`'s
+decoded NamedTuple. The v3 space additionally passes the update-rate knobs
+`alpha_acc`/`alpha_yaw`/`grip_slip_scale`/`r_boost` (all guarded by `haskey`,
+so v2 callers are unaffected). `tau_slip`/`sigma_slip`/
 `sigma_gyro_bias_rw` come from the struct's own measured defaults unless
 `est_cfg` explicitly overrides them.
 """
@@ -53,10 +57,30 @@ function build_estimator_v2(est_cfg::NamedTuple, suite)
     kw = Dict{Symbol,Any}(:imu=>suite.imu, :enc=>suite.enc, :flow=>suite.flow)
     for k in (:P0_vel, :P0_yaw, :P0_heading, :P0_bias_acc, :P0_bias_gyro, :P0_slip, :P0_pos,
              :pose_Qn_heading, :pose_Qn_pos, :slip_R_inflate,
+             :alpha_acc, :alpha_yaw, :grip_slip_scale, :r_boost,
              :tau_slip, :sigma_slip, :sigma_gyro_bias_rw, :use_dhat, :rate_hz)
         haskey(est_cfg, k) && (kw[k] = getfield(est_cfg, k))
     end
     return Main.EstimatorModV2.ESKFEstimatorV2(; kw...)
+end
+
+"""
+    build_estimator_v3(est_cfg, suite) -> ESKFEstimatorV3
+
+ESKFEstimatorV3 (13-dim, yaw-accel state) builder — same pass-through as
+`build_estimator_v2` plus the V3-specific `q_alpha` (tunable) and `P0_alpha`
+(pinned) keys. `est_cfg` is `ParamSpaceV4Mod.apply_params_v4!`'s decoded
+NamedTuple. Requires `estimators_v3.jl` to be included.
+"""
+function build_estimator_v3(est_cfg::NamedTuple, suite)
+    kw = Dict{Symbol,Any}(:imu=>suite.imu, :enc=>suite.enc, :flow=>suite.flow)
+    for k in (:P0_vel, :P0_yaw, :P0_heading, :P0_bias_acc, :P0_bias_gyro, :P0_slip, :P0_pos,
+             :P0_alpha, :pose_Qn_heading, :pose_Qn_pos, :slip_R_inflate,
+             :alpha_acc, :alpha_yaw, :grip_slip_scale, :r_boost, :q_alpha,
+             :tau_slip, :sigma_slip, :sigma_gyro_bias_rw, :use_dhat, :rate_hz)
+        haskey(est_cfg, k) && (kw[k] = getfield(est_cfg, k))
+    end
+    return Main.EstimatorModV3.ESKFEstimatorV3(; kw...)
 end
 
 """
@@ -228,16 +252,19 @@ function run_and_log_replay_v2(est_cfg::NamedTuple,
                                suite;
                                seed::Int=42,
                                rate_hz::Float64=1000.0,
-                               data_dir::AbstractString="../data/Simulation_Data_MecanumSlipSpin_LugreAdamov")
+                               data_dir::AbstractString="../data/Simulation_Data_MecanumSlipSpin_LugreAdamov",
+                               t_window::Union{Nothing,Tuple{Float64,Float64}}=nothing,
+                               builder=build_estimator_v2)
     base = Main.Profiles.load_base(traj_entry.config_dir)
     chi = Float64(get(base, "physics", Dict())["chi"])
     params = Main.PlatformParams(base; mu_friction=Float64(traj_entry.mu))
 
-    est = build_estimator_v2(est_cfg, suite)
+    est = builder(est_cfg, suite)
     bus = Main.BusMod.ControllerBus()
     bus.use_dhat = false
 
-    meta = (profile=String(traj_entry.name), combo_idx=Int(traj_entry.combo_idx),
+    profile_name = get(traj_entry, :profile, traj_entry.name)
+    meta = (profile=String(profile_name), combo_idx=Int(traj_entry.combo_idx),
             mu=Float64(traj_entry.mu), friction_case=1, friction_model=:lugre_adamov, chi=chi)
     arrow_path = Main.DataStore.expected_output(data_dir, meta)
     isfile(arrow_path) || error("run_and_log_replay_v2: data not found for $(traj_entry.name) " *
@@ -250,8 +277,11 @@ function run_and_log_replay_v2(est_cfg::NamedTuple,
 
     dt = 1.0 / rate_hz
     T = ts[end]
-    ticks = collect(range(0.0, T; step=dt))
-    !isempty(ticks) && ticks[end] > T + 1e-12 && pop!(ticks)
+    t0, t1 = something(t_window, (0.0, T))
+    t0 = clamp(t0, 0.0, T)
+    t1 = clamp(t1, t0, T)
+    ticks = collect(range(t0, t1; step=dt))
+    !isempty(ticks) && ticks[end] > t1 + 1e-12 && pop!(ticks)
     N = length(ticks)
 
     v_true = Matrix{Float64}(undef, 3, N); v_hat = Matrix{Float64}(undef, 3, N)
@@ -302,6 +332,85 @@ function run_and_log_replay_v2(est_cfg::NamedTuple,
     return EstimatorLogV2(ticks, v_true, v_hat, pose_true, pose_hat, d_hat_log, slip,
                           string(traj_entry.name), traj_entry.ref_type,
                           traj_entry.run_mode, seed)
+end
+
+# =============================================================================
+# Segmented replay manifest — two random T/4 windows per trajectory
+# =============================================================================
+"""
+    _trajectory_duration(traj_entry; data_dir) -> Float64
+
+Read only the `time` column of the Arrow file for `traj_entry` and return the
+final timestamp. Used once per seed to place random replay windows.
+"""
+function _trajectory_duration(traj_entry::NamedTuple;
+                              data_dir::AbstractString="../data/Simulation_Data_MecanumSlipSpin_LugreAdamov")
+    base = Main.Profiles.load_base(traj_entry.config_dir)
+    chi = Float64(get(base, "physics", Dict())["chi"])
+    meta = (profile=String(traj_entry.name), combo_idx=Int(traj_entry.combo_idx),
+            mu=Float64(traj_entry.mu), friction_case=1, friction_model=:lugre_adamov, chi=chi)
+    arrow_path = Main.DataStore.expected_output(data_dir, meta)
+    isfile(arrow_path) || error("_trajectory_duration: data not found for $(traj_entry.name): $arrow_path")
+    return Float64(Arrow.Table(arrow_path).time[end])
+end
+
+"""
+    segmented_replay_trajset(seed::Int; segment_frac=0.25, data_dir)
+
+Return a 22-entry manifest (2 segments × 11 trajectories). For each trajectory
+of duration T, two non-overlapping windows of length segment_frac·T are drawn
+deterministically from `seed`:
+  - window 1 starts in [0, T/2 - L]   (lies inside the first half)
+  - window 2 starts in [T/2, T - L]   (lies inside the second half)
+where L = segment_frac·T. The windows are stored in each entry as
+`t_window = (t_start, t_end)` for `run_and_log_replay_v2`.
+"""
+function segmented_replay_trajset(seed::Int; segment_frac::Float64=0.25,
+                                  data_dir::AbstractString="../data/Simulation_Data_MecanumSlipSpin_LugreAdamov")
+    base = Main.ReplayTrajSetMod.replay_trajset()
+    rng = MersenneTwister(hash((seed, :replay_segments)))
+    segs = []
+    for tr in base
+        T = _trajectory_duration(tr; data_dir=data_dir)
+        L = segment_frac * T
+        # First half window: start in [0, T/2 - L], end in [L, T/2]
+        t1_start = rand(rng) * (T/2 - L)
+        # Second half window: start in [T/2, T - L], end in [T/2 + L, T]
+        t2_start = T/2 + rand(rng) * (T/2 - L)
+        push!(segs, merge(tr, (t_window=(t1_start, t1_start + L),)))
+        push!(segs, merge(tr, (t_window=(t2_start, t2_start + L),)))
+    end
+    return segs
+end
+
+# =============================================================================
+# Controller-tuning-aligned mu=0.5 replay manifest
+# =============================================================================
+"""
+    _toml_to_profile(toml::String) -> String
+
+Strip the `_mu_0p5.toml` suffix from a controller-tuning profile TOML name to
+recover the base profile string used in the Arrow filename contract.
+"""
+function _toml_to_profile(toml::String)
+    suffix = "_mu_0p5.toml"
+    endswith(toml, suffix) || error("_toml_to_profile: expected '*$suffix', got '$toml'")
+    return String(toml[1:end-length(suffix)])
+end
+
+"""
+    mu0p5_train12_replay_trajset(run_dir::AbstractString="trajectory_files_run_0p5_main")
+
+Return the 12-trajectory `train12` set from `TrajSetsMod`, remapped for replay:
+- `name` stays descriptive (e.g. "octagon_easy") for logging.
+- `profile` is added as the base Arrow profile string (e.g. "octagon").
+- `mu=0.5` and `combo_idx` are preserved.
+All entries are `run_mode=:pose` in controller tuning, but replay is reference-
+agnostic: it only needs the recorded state Arrow file.
+"""
+function mu0p5_train12_replay_trajset(run_dir::AbstractString="trajectory_files_run_0p5_main")
+    base = Main.TrajSetsMod.trajset(:train12, run_dir)
+    return [merge(tr, (profile=_toml_to_profile(tr.profile_toml),)) for tr in base]
 end
 
 end # module

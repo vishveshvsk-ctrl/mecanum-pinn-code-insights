@@ -44,31 +44,33 @@ mecanum_pinn_head/
 
 ## Project layout (full hierarchy)
 
-See **[PROJECT_LAYOUT.md](PROJECT_LAYOUT.md)** for the complete current file hierarchy
-(detailed breakdown with file sizes, descriptions, and 3-level nesting).
+See **[PROJECT_LAYOUT.md](../PROJECT_LAYOUT.md)** for the complete current file hierarchy
+(detailed breakdown with file counts, descriptions, and organization by category).
 
-**Quick summary of code_insights/ (1.27 GB total):**
+**Quick summary of code_insights/ (6,331 files total):**
 
-| Category | Size | Contents |
-|----------|------|----------|
-| **Main Simulator Notebook** | 229.71 MB | `Mecanum_SlipSpinLuGre_ASMC_DOB_full_supertwist_v4.ipynb` (39-D ODE, LuGre friction, ASMC+DOB) |
-| **Solver Benchmark** | 988.36 MB | `julia_solver_benchmark_asmc4/` (13 reference JLD2 files, 3 executed notebooks) |
-| **Julia modules** | 121.9 KB | `profiles.jl` (41.56 KB), `datastore.jl` (15.46 KB), `Data_Generation_Julia.jl` (21.52 KB), `run_one.jl` (42.93 KB) |
-| **Trajectory configs** | ~1.9 MB | `trajectory_files_run_0p*_main/`, `_quad/`, `_pilot/`, `_chinc/`, `_scpilot/` (13 config sets) |
-| **PINN packages** | ~4.5 MB | `train_GPU_PINN_v14_py/` (1.16 MB), `Mecanum_PINN_Mamba_ForceRecon_v1/` (450.29 KB), `observer_v1_py/` (6.39 MB) |
-| **Python diagnostics** | ~270 KB | `chatter_diagnostics.py`, `chi_identifiability.py`, `mu_identifiability.py`, `roller_slip_fraction.py`, etc. (14 scripts) |
-| **Analysis outputs** | ~10.5 MB | CSVs (identifiability, chatter, tracking, sampling), `diagnostics_combined.csv` (4.57 MB) |
-| **Trained checkpoints** | 2.3 MB | `checkpoints_mamba_v1/` (515.87 KB), `observer_v1_py/runs/` (1.8 MB) |
-| **Visualization** | 32.3 MB | `rendered_traj_diagnostics/` (18.69 MB), `images_and_plots/` (6.24 MB), `presentation/` (7.40 MB) |
-| **Documentation** | ~30.5 MB | `docs/` (8.81 MB), `CLAUDE.md` (21.63 KB), technical notes, strategy docs |
-| **Handoff briefs** | 87.28 KB | `chat-handoff/` (13 cross-session task briefs) |
-| **Temporary & cache** | ~10.5 MB | `_tmp/` (7.72 MB exploration), `_nb_read_eval/` (27.29 KB), `__pycache__/`, `.ipynb_checkpoints/` |
+| Category | Files | Key Directories |
+|----------|-------|-----------------|
+| **Infrastructure & Caches** | 2,588 | `.git/` (2,552), Python/Jupyter caches, Claude settings |
+| **Hybrid Control** | 955 | `hybrid_ctrl_v2/` (853), `hybrid_ctrl/` (102) |
+| **Observer System** | 649 | `observer_v1_py/` (642), `observer_validation_v1_envelope_tuned/` (7) |
+| **Utilities & Temp** | 788 | `_tmp/` (740), `chat-handoff/` (28), tools/tuning/batch scripts (20) |
+| **Estimators & Kalman** | 358 | `runs_estimator_posfix_velref*` (238), base/IMM/ABS variants (120) |
+| **PINN & Training** | 201 | `Mecanum_PINN_Mamba_ForceRecon_v1/` (160), `train_GPU_PINN_v14_py/` (41) |
+| **Controllers** | 219 | `runs_controller*` (17 variants: ASMC, PID, ESKF comparisons) |
+| **Visualization & Docs** | 140 | `presentation/` (46), `images_and_plots/` (32), `docs/` (21), `instructions/` (29), widgets (12) |
+| **Trajectories & Physics** | 101 | 13 config sets (mu/chi/profile sweeps with base.toml) |
+| **ESKF Studies** | 75 | `runs_eskf_smoke/` (21), `runs_eskf_full_v2/` (19), `runs_eskf_noellipse_v2/` (16), others (19) |
+| **Specialized Studies** | 82 | Bound analysis (28), diagnostics (16), solver benchmarks (17), stick-slip (8), energy/summaries (13) |
+| **Comparisons** | 3 | Cross-run comparison studies |
 
-**data/ contains (274.35 GB total):**
-- `Simulation_Data_MecanumSlipSpin_LugreAdamov/` — Main active sweep (~5,670 Arrow files, 221.84 GB)
-- `_mu_pilot2/` — Pilot run 2 (6.09 GB); reference only
-- `SimulationDataSlipSpin_Julia/` — Legacy (3.42 GB); **DEPRECATED** (do not use)
-- `SimulationDataSlipSpin_Julia_3/` — Legacy (42.99 GB); **DEPRECATED** (do not use)
+**data/ contains (23,311 files total):**
+- `Simulation_Data_MecanumSlipSpin_LugreAdamov/` — Main active sweep (13,151 Arrow files)
+- `SimulationDataSlipSpin_Julia_3/` — Legacy (5,186 files); **DEPRECATED** (do not use)
+- `SimulationDataSlipSpin_Julia/` — Legacy (4,810 files); **DEPRECATED** (do not use)
+- `_mu_pilot2/` — Pilot run 2 (142 files); reference only
+- `solver_ablation_studies/` — Solver study data (15 files); reference only
+- `IMU_frontend_audit/` — IMU audit (1 file); reference only
 
 ---
 
@@ -142,4 +144,12 @@ C:\Users\vishv\OneDrive\Desktop\Vishvesh_Data\VNIT\mecanum_pinn_head\
 
 ## Last updated
 
-2026-06-23 (automated hierarchical layout sync)
+2026-08-16 (automated hierarchical layout sync)
+- Updated file counts: code_insights 6,331 (↑2,667 from 3,664 post-cleanup), data 23,303 (→unchanged)
+- Major categories: Infrastructure (.git + caches: 2,588), Hybrid Ctrl (955), Observer (649), Utilities (788), Estimators (358), PINN (201), Controllers (219), Viz/Docs (140), Trajectories (101), ESKF (75), Specialized (82)
+- Status: Expansion in hybrid_ctrl_v2 (853), controller/estimator/ESKF runs, utilities; all subsystems operationally intact
+
+2026-08-13 (automated hierarchical layout sync)
+- Updated file counts: code_insights 7,049 (↑1,007 from 6,042), data 23,311 (↑8 from 23,303)
+- Major categories reorganized: Infrastructure (2,850), Hybrid Ctrl (1,017), Observer (757), Utilities (760), Estimators (413), PINN (218), Controllers (281), Viz/Docs (140), Trajectories (101), ESKF (97), Specialized (110), Root files (138), Comparisons (3)
+- Growth driven by expanded hybrid_ctrl_v2 (898), utilities (_tmp: 706), estimator runs (413), and controller runs (281); .git updated to 2,825 files; all subsystems operationally intact

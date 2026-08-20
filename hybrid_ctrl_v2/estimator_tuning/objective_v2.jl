@@ -106,19 +106,32 @@ function make_replay_objective_v2(space, trajs;
                                   flow::Bool=true, fix_tier::Symbol=:docking,
                                   v_tol::Real=1e-3, rate_tol::Real=1e-2,
                                   pos_tol::Real=1e-2, heading_tol::Real=1e-2,
-                                  λ_slip::Real=1.0, λ_smooth::Real=0.05)
+                                  λ_slip::Real=1.0, λ_smooth::Real=0.05,
+                                  decode=nothing,
+                                  builder=Main.HarnessV2Mod.build_estimator_v2)
+    # `decode` defaults to the v2 decoder; resolved lazily so this module also
+    # loads in sessions where ParamSpaceV2Mod was never included (e.g. the v3
+    # entry point, which passes ParamSpaceV3Mod.apply_params_v3! explicitly).
+    # `builder` selects the estimator struct (V2 default; V4 passes
+    # build_estimator_v3 for the 13-dim yaw-accel ESKFEstimatorV3).
+    dec = decode === nothing ? Main.ParamSpaceV2Mod.apply_params_v2! : decode
     return function (theta::Vector{Float64})
-        est_cfg = Main.ParamSpaceV2Mod.apply_params_v2!(theta, space)
+        est_cfg = dec(theta, space)
 
         logs = Main.HarnessV2Mod.EstimatorLogV2[]
         per_traj = Dict{String,NamedTuple}()
         n_fail = 0
 
         for tr in trajs
-            key = "$(tr.name)_c$(tr.combo_idx)_mu$(tr.mu)"
+            win = get(tr, :t_window, nothing)
+            key = if win !== nothing
+                "$(tr.name)_c$(tr.combo_idx)_mu$(tr.mu)_$(round(win[1],digits=3))-$(round(win[2],digits=3))"
+            else
+                "$(tr.name)_c$(tr.combo_idx)_mu$(tr.mu)"
+            end
             log = try
                 suite = Main.SensorModV2.build_suite(sensor_kind; seed=seed, flow=flow, fix_tier=fix_tier)
-                Main.HarnessV2Mod.run_and_log_replay_v2(est_cfg, tr, suite; seed=seed)
+                Main.HarnessV2Mod.run_and_log_replay_v2(est_cfg, tr, suite; seed=seed, t_window=win, builder=builder)
             catch e
                 @warn "EstimatorObjectiveV2Mod: replay failed for $key" exception = e
                 n_fail += 1

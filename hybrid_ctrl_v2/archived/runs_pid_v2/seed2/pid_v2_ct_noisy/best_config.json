@@ -1,0 +1,20 @@
+{
+  "best_gains": {
+    "N": 4.0,
+    "lam_inner_y": 0.07706809845325265,
+    "lam_inner_x": 0.1793249871802166,
+    "feedforward": true,
+    "lam_inner_psi": 0.012143089216152784
+  },
+  "phase2_evals": 22,
+  "trajset_screen": "train12",
+  "stop_reason": "no_refine_gain",
+  "noise": "noisy",
+  "best_score": 1.0910313673095282,
+  "controller": "pid_v2_ct",
+  "stage": "0",
+  "converged": true,
+  "trajset_full": "train12",
+  "phase1_evals": 0,
+  "seed": 2
+}

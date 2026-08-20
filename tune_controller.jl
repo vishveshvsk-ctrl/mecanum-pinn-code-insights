@@ -49,6 +49,23 @@ const BBO = Base.require(Main, :BlackBoxOptim)
 const V_MAX = 24.0          # for control-effort normalisation
 const LAMBDA_CE = 0.05      # mild control-effort penalty weight
 
+# Chatter normaliser -- the tolerance-analogue for the chatter term, playing the
+# same role TOL.vel_rms plays for tracking: chatter/CHATTER_REF == 1.0 means
+# "saturating the actuator's slew capability".
+#
+# 0.8 V/ms = 4 * dV_max / f_mix = 4 * 200 / 1000, i.e. the per-tick wheel-voltage
+# slew clamp in mixer.jl summed over the 4 wheels -- a HARD cap on the `chatter`
+# metric, not a soft target.
+#
+# WHY NOT V_MAX: `chatter` is a slew RATE (V/ms), `ce` is a voltage MAGNITUDE.
+# Dividing chatter by V_MAX=24 is dimensionally meaningless and numerically
+# crushing -- it puts chatter/V_MAX at 0.005-0.008 for every config measured to
+# date, so `--lambda-chatter 1` would move a score of ~1.0 by 0.005. That, not
+# just the 0.0 default, is why the term has never bitten: any O(1) value anyone
+# would naturally try is ~100x too small. lambda_chatter is now an exchange rate
+# in interpretable units (score per unit of slew-ceiling fraction).
+const CHATTER_REF = 0.8
+
 # -----------------------------------------------------------------------------
 # ABSOLUTE-ERROR tolerances (physical units) — the tuning targets.
 # The objective normalises each error metric by its tolerance, so a term = 1.0
@@ -227,10 +244,66 @@ function run_controller(ctrl::Symbol, kw::NamedTuple, oracle_kind::Symbol, tr; s
 end
 
 # -----------------------------------------------------------------------------
+# High-frequency chatter metric.
+# -----------------------------------------------------------------------------
+# `chatter` (mean per-tick total variation of v_cmd) counts the voltage traversal
+# GENUINELY REQUIRED to accelerate along the trajectory alongside the switching
+# activity we actually want to penalise. Evidence that the two are separable: the
+# per-axis decomposition holds chatter_x/chatter_y flat at 0.05-0.08 across every
+# tuning AND every control law, while all the movement lives in chatter_psi — a
+# component invariant to a 3x change in lam_psi_max and to swapping the entire
+# controller is command shaping, not switching.
+#
+# A first difference IS a high-pass, but a very gentle one: a single zero at DC,
+# +20 dB/decade, no stopband. CHATTER_FC-corner Butterworth run forward-backward
+# gives ~-34 dB at 10 Hz (above the fastest tuned closed-loop pole) with unity
+# passband gain, so the slew-ceiling normalisation (4*dV_max/f_mix = 0.8 V/ms)
+# carries over unchanged.
+#
+# Corner: above the fastest tuned closed-loop pole (lam_psi_max = 60 rad/s =
+# 9.5 Hz) and above 5x the wheel corner (15 Hz, cf. burst_hp_hz in
+# chatter_diagnostics.py), but below the measured switching-hash ridge
+# (f_hash_med = 56-71 Hz in chatter_report.csv).
+#
+# CAVEAT: this measures commanded slew above CHATTER_FC, NOT sliding-mode
+# switching specifically. A ZOH staircase is not band-limited, so a controller
+# updating at f < 2*CHATTER_FC is charged for its own update-rate images. Only
+# compare chatter_hf between RATE-MATCHED controllers (which is why f_pid was
+# raised to f_est); use the raw `chatter` TV, which is ~rate-invariant for smooth
+# content, for any comparison across mismatched rates.
+const CHATTER_FC = 25.0   # Hz, high-pass corner for chatter_hf
+
+"2nd-order Butterworth high-pass biquad via bilinear transform (Q = 1/sqrt(2))."
+function _hp_biquad(fc::Float64, fs::Float64)
+    w0 = 2pi * fc / fs
+    cw, sw = cos(w0), sin(w0)
+    alpha = sw / sqrt(2.0)                      # sin(w0)/(2Q), Q = 1/sqrt(2)
+    a0 = 1.0 + alpha
+    b = ((1 + cw) / 2 / a0, -(1 + cw) / a0, (1 + cw) / 2 / a0)
+    a = (1.0, -2cw / a0, (1 - alpha) / a0)
+    return b, a
+end
+
+function _biquad(x::Vector{Float64}, b, a)
+    y = similar(x)
+    x1 = x2 = y1 = y2 = 0.0
+    @inbounds for k in eachindex(x)
+        xk = x[k]
+        yk = b[1]*xk + b[2]*x1 + b[3]*x2 - a[2]*y1 - a[3]*y2
+        y[k] = yk
+        x2 = x1; x1 = xk; y2 = y1; y1 = yk
+    end
+    return y
+end
+
+"Zero-phase forward-backward pass: doubles the order, cancels phase distortion."
+_filtfilt(x::Vector{Float64}, b, a) = reverse(_biquad(reverse(_biquad(x, b, a)), b, a))
+
+# -----------------------------------------------------------------------------
 # Tracking + effort metrics from the per-tick probe.
 # -----------------------------------------------------------------------------
 function controller_metrics(probe, ref, mode::Symbol)
-    isempty(probe) && return (tracking=Inf, ce=Inf, chatter=Inf, ok=false, abs=NamedTuple())
+    isempty(probe) && return (tracking=Inf, ce=Inf, chatter=Inf, chatter_hf=NaN, ok=false, abs=NamedTuple())
     ce = mean(sum(abs.(Vector(p.v_cmd))) for p in probe)
     # Chatter = mean per-tick total variation of the wheel-voltage command (sum
     # over 4 wheels of |Δv_cmd|). Targets high-frequency switching activity, the
@@ -238,6 +311,29 @@ function controller_metrics(probe, ref, mode::Symbol)
     # (magnitude). Proxy at the probe/log rate.
     vc = [Vector(p.v_cmd) for p in probe]
     chatter = length(vc) < 2 ? 0.0 : mean(sum(abs.(vc[k] .- vc[k-1])) for k in 2:length(vc))
+
+    # chatter_hf: the same total-variation measure on the HIGH-PASS FILTERED
+    # command (see CHATTER_FC above). The difference operator and the filter are
+    # both LTI and commute, so this equals the per-tick TV of the filtered
+    # voltage — same units (V/ms, summed over 4 wheels), same 0.8 V/ms ceiling.
+    # fs is measured from the probe timestamps rather than assumed from f_est.
+    fs = (probe[end].t - probe[1].t) > 0 ? (length(probe) - 1) / (probe[end].t - probe[1].t) : 0.0
+    chatter_hf = if length(vc) < 16 || fs < 4 * CHATTER_FC
+        NaN                                     # under-sampled: corner not resolvable
+    else
+        bq, aq = _hp_biquad(CHATTER_FC, fs)
+        # Drop the leading 0.5 s: filtfilt edge transient + closed-loop startup.
+        nskip = min(length(vc) - 8, ceil(Int, 0.5 * fs))
+        acc = 0.0
+        for i in 1:4
+            yi = _filtfilt([v[i] for v in vc], bq, aq)
+            @inbounds for k in (nskip + 2):length(yi)
+                acc += abs(yi[k] - yi[k-1])
+            end
+        end
+        nt = length(vc) - nskip - 1
+        nt > 0 ? acc / nt : NaN
+    end
 
     if mode == :velocity
         ex = Float64[]; ey = Float64[]; ep = Float64[]
@@ -270,7 +366,7 @@ function controller_metrics(probe, ref, mode::Symbol)
     end
 
     ok = isfinite(tracking) && isfinite(ce)
-    return (tracking=tracking, ce=ce, chatter=chatter, ok=ok, abs=absm)
+    return (tracking=tracking, ce=ce, chatter=chatter, chatter_hf=chatter_hf, ok=ok, abs=absm)
 end
 
 "Format the absolute-error sub-metrics in physical units for reporting."
@@ -325,7 +421,7 @@ function make_objective(ctrl::Symbol, space, trajs, oracle_kind::Symbol;
         gamma_pen = (ctrl == :asmc && lambda_gamma > 0) ?
             lambda_gamma * (kw.gamma_x + kw.gamma_y + kw.gamma_psi) / (3 * 100.0) : 0.0
         score = tracking + LAMBDA_CE * (ce / V_MAX) +
-                lambda_chatter * (chatter / V_MAX) + kmax_pen + gamma_pen
+                lambda_chatter * (chatter / CHATTER_REF) + kmax_pen + gamma_pen
         return (score=score, tracking=tracking, ce=ce, chatter=chatter,
                 kmax_pen=kmax_pen, gamma_pen=gamma_pen)
     end

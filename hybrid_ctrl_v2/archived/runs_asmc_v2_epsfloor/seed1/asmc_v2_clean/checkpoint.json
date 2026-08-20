@@ -1,0 +1,23 @@
+{
+  "current_gains": {
+    "eps_floor_xy": 0.02,
+    "eps_floor_psi": 0.08,
+    "tau_ceiling": 99.17617442746568,
+    "lam_x_max": 3.837156582470658,
+    "lam_psi_max": 19.995255317977552,
+    "lam_y_max": 1.5951641160484684
+  },
+  "best_gains": {
+    "eps_floor_xy": 0.02,
+    "eps_floor_psi": 0.08,
+    "tau_ceiling": 99.17673159570258,
+    "lam_x_max": 3.8469588776648367,
+    "lam_psi_max": 19.995087391081924,
+    "lam_y_max": 1.589820468456954
+  },
+  "tier": "full",
+  "iter": 30,
+  "timestamp": "2026-08-11T06:46:20.207",
+  "current_score": 1.0681352635001817,
+  "best_score": 1.0680942555780097
+}

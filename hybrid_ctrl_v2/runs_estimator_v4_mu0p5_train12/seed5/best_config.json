@@ -1,0 +1,30 @@
+{
+  "stop_reason": "plateau",
+  "estimator": "ESKFEstimatorV3",
+  "best_gains": {
+    "q_alpha": 0.06385134573991995,
+    "P0_vel": 0.0001,
+    "alpha_yaw": 0.0772611297695354,
+    "grip_slip_scale": 0.018936579867291577,
+    "r_boost": 100.00000000000004,
+    "pose_Qn_pos": 1.0e-7,
+    "use_dhat": false,
+    "P0_heading": 0.5,
+    "P0_pos": 0.25,
+    "P0_yaw": 0.001,
+    "alpha_acc": 0.028564308890201534,
+    "P0_slip": 0.0002,
+    "P0_alpha": 0.25,
+    "slip_R_inflate": 22.294443516835578,
+    "pose_Qn_heading": 9.999999999999982e-9,
+    "P0_bias_gyro": 9.0e-6,
+    "P0_bias_acc": 0.0004
+  },
+  "n_trajectories": 12,
+  "phase1_evals": 129,
+  "seed": 5,
+  "space": "eskf_v4",
+  "converged": true,
+  "best_score": 2.6306228896152013,
+  "phase2_evals": 37
+}

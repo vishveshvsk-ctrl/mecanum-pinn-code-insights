@@ -38,6 +38,7 @@ _nb_read_eval/
 kimi_start_prompt.txt
 monitoring_location.txt
 kimi_code_creator_wsl.md
+AGENTS.md
 
 # --- Decimated trajectory caches (regenerable; can be GBs) ---------------
 Mecanum_PINN_Mamba_ForceRecon_v1/cache_decim/
@@ -78,3 +79,9 @@ docs/PINN Mecanum Deck - Combined.html
 # ===========================================================================
 .aider*
 .env
+
+# Julia sweep console logs: progress-bar output, 20-30 MB each, ~1.8 GB total.
+# The results they record live in each run dir's best_config.json / trace.csv,
+# which ARE tracked. Kept on disk (incl. under hybrid_ctrl_v2/archived/) but
+# never committed.
+*.log

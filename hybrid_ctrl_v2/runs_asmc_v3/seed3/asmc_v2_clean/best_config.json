@@ -1,0 +1,29 @@
+{
+  "best_gains": {
+    "eps_floor_xy": 0.02,
+    "eps_floor_psi": 0.08,
+    "enforce_k_floor": true,
+    "lam_x_max": 2.3335856584397825,
+    "rho_auth": 2.2750701112052907,
+    "kmax_contact_b": true,
+    "kmax_sched_floor": [
+      1.5595722801829974,
+      1.5223128741717993,
+      13.229484311468061
+    ],
+    "lam_psi_max": 8.138705225062244,
+    "lam_y_max": 1.1613139257442189,
+    "use_demand_k": true
+  },
+  "phase2_evals": 22,
+  "trajset_screen": "train14_v3",
+  "stop_reason": "plateau",
+  "noise": "clean",
+  "best_score": 0.1523474782582519,
+  "controller": "asmc_v2",
+  "stage": "1",
+  "converged": true,
+  "trajset_full": "train14_v3",
+  "phase1_evals": 65,
+  "seed": 3
+}

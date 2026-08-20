@@ -1,0 +1,22 @@
+{
+  "stop_reason": "cap",
+  "best_gains": {
+    "P0_pos": 9.97281111872518,
+    "P0_slip": 0.001960228622670462,
+    "pose_Qn_heading": 0.0009999780778115355,
+    "P0_vel": 0.2944250712748079,
+    "pose_Qn_pos": 2.3927276657415813e-8,
+    "use_dhat": false,
+    "P0_heading": 1.0,
+    "P0_yaw": 0.21835453949511469,
+    "slip_R_inflate": 90.96120090366229,
+    "P0_bias_gyro": 0.0010000000000000002,
+    "P0_bias_acc": 0.015319553692758779
+  },
+  "n_trajectories": 22,
+  "phase1_evals": 181,
+  "seed": 1,
+  "converged": false,
+  "phase2_evals": 61,
+  "best_score": 40.150140409604106
+}

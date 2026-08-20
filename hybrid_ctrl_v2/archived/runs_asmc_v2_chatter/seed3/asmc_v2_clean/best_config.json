@@ -1,0 +1,21 @@
+{
+  "best_gains": {
+    "eps_floor_xy": 0.02,
+    "eps_floor_psi": 0.08,
+    "tau_ceiling": 299.1214413794378,
+    "lam_x_max": 3.5501685283374886,
+    "lam_psi_max": 42.34510805382556,
+    "lam_y_max": 1.995321816825762
+  },
+  "phase2_evals": 49,
+  "trajset_screen": "train12",
+  "stop_reason": "plateau",
+  "noise": "clean",
+  "best_score": 1.3905421127300466,
+  "controller": "asmc_v2",
+  "stage": "1",
+  "converged": true,
+  "trajset_full": "train12",
+  "phase1_evals": 65,
+  "seed": 3
+}

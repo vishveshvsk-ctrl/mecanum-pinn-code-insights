@@ -1,0 +1,22 @@
+{
+  "stop_reason": "plateau",
+  "best_gains": {
+    "P0_pos": 9.999999984395325,
+    "P0_slip": 0.006235890465498005,
+    "pose_Qn_heading": 0.0009997374999995005,
+    "P0_vel": 0.9891344630589995,
+    "pose_Qn_pos": 1.0027702704550456e-8,
+    "use_dhat": false,
+    "P0_heading": 0.9999012910131583,
+    "P0_yaw": 0.7328514256616704,
+    "slip_R_inflate": 1.0,
+    "P0_bias_gyro": 1.1957082892543682e-6,
+    "P0_bias_acc": 0.09996454067259664
+  },
+  "n_trajectories": 22,
+  "phase1_evals": 271,
+  "seed": 3,
+  "converged": true,
+  "phase2_evals": 48,
+  "best_score": 74.40727822882941
+}

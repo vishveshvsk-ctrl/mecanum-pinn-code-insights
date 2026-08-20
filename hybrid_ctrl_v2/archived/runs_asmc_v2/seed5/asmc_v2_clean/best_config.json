@@ -1,0 +1,21 @@
+{
+  "best_gains": {
+    "gamma_x": 5.94511416135003,
+    "gamma_y": 25.769013244193157,
+    "lam_x_max": 2.1719788148659305,
+    "lam_psi_max": 1.6773344158828623,
+    "lam_y_max": 4.816928483995053,
+    "gamma_psi": 99.7836192904514
+  },
+  "phase2_evals": 61,
+  "trajset_screen": "train12",
+  "stop_reason": "cap",
+  "noise": "clean",
+  "best_score": 3.88671214827039,
+  "controller": "asmc_v2",
+  "stage": "1",
+  "converged": false,
+  "trajset_full": "train12",
+  "phase1_evals": 145,
+  "seed": 5
+}
