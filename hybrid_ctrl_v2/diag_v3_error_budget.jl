@@ -63,6 +63,14 @@
 # 76.3% should be read as an upper bound on filtering alone.
 # =============================================================================
 const ROOT = abspath(joinpath(@__DIR__, ".."))
+
+# Tier + matching ESKF run dir, overridable via V3_TIER so the held-out :test_v3
+# budget is produced by THIS SAME code path -- identical columns, identical
+# derivation -- rather than being reformatted by hand. Structural parity between
+# the train and test sections of RESULTS_v3.md is the point.
+const TIER    = Symbol(get(ENV, "V3_TIER", "train14_v3"))
+const ESKFDIR = TIER === :train14_v3 ? "runs_eskf_v3_train14" : "runs_eskf_v3_test"
+
 cd(ROOT)
 
 include(joinpath(ROOT, "hybrid_ctrl_v2", "tune_controller_v2.jl"))
@@ -132,7 +140,7 @@ function injected_state_noise(params, v)
     (vx=sig_vx, vy=sig_vy, vel=sqrt(sig_vx^2 + sig_vy^2), wz=sig_wz)
 end
 
-trs = collect(trajset(:train14_v3, "trajectory_files_run_0p5_main"))
+trs = collect(trajset(TIER, "trajectory_files_run_0p5_main"))
 INJ = Dict{String,Any}()
 for tr in trs
     base   = Profiles.load_base(tr.config_dir)
@@ -152,13 +160,14 @@ for tr in trs
 end
 
 # --- stages (2) and (3), straight from the completed runs ---------------------
-dir = joinpath(ROOT, "hybrid_ctrl_v2", "runs_eskf_v3_train14")
+dir = joinpath(ROOT, "hybrid_ctrl_v2", ESKFDIR)
 df  = reduce(vcat, [CSV.read(joinpath(dir, f), DataFrame)
                     for f in readdir(dir) if occursin(r"^runs_seed\d+\.csv$", f)])
 df  = df[df.ok .== true, :]
 
 println("="^108)
-println("THREE-STAGE ERROR BUDGET — ESKF closed loop, train14_v3, noise seeds 101-105")
+@printf("THREE-STAGE ERROR BUDGET — ESKF closed loop, %s, noise seeds 101-105
+", TIER)
 println("(1) injected = raw sensor noise in state units, pre-filter   (2) surviving = after ESKF   (3) tracking = true vs ref")
 println("    sources: velocity<-encoders   yaw rate<-gyro   position/heading<-pose fix @100Hz")
 println("="^108)

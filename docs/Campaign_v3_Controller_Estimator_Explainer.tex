@@ -1,0 +1,289 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue}
+\setlength{\parskip}{3pt}
+\emergencystretch=1.5em
+
+\title{The v3 Controller/Estimator Campaign on the Mecanum Digital-Twin Plant\\
+\large What was run, why, and how to read it --- explainer companion to
+\texttt{RESULTS\_v3.md}}
+\author{Mecanum--PINN dynamics notes\\
+\small KUKA youBot four-Mecanum platform, IMECE 2026 track\\
+\small code: \texttt{hybrid\_ctrl\_v2/} (Julia closed-loop stack)}
+\date{August 20, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+This note explains the v3 controller/estimator simulation campaign end to end: the
+question it answers (\S1), the simulated plant, sensors and estimator (\S2), the
+feasibility screening that defines which trajectories are fair to ask for (\S3), the
+scalar objective every run minimizes (\S4), the five-stage protocol (\S5), the headline
+findings (\S6), and the reading rules that keep the numbers honest (\S7). It is the
+narrative companion to \texttt{hybrid\_ctrl\_v2/RESULTS\_v3.md}, which remains the
+document of record for the numbers themselves.
+\end{abstract}
+
+\section{The question}
+The project needs a defensible answer to: \emph{which control law should the
+omnidirectional platform fly, and how much of its performance survives real state
+estimation?} Three candidate laws are compared, chosen so the comparison is a two-step
+ablation:
+
+\begin{center}\small
+\begin{tabular}{@{}l p{8.6cm} p{4.9cm} @{}}
+\toprule
+Controller & Structure & What it isolates\\
+\midrule
+\textbf{PID-FB} & cascaded IMC-reparameterized PID, 3 tuned $\lambda_{inner}$ per axis,
+                  rest derived & industrial baseline\\
+\textbf{PID-CT} & same cascade $+$ computed-torque feedforward (matched to ASMC's
+                  equivalent control) & FB$\to$CT: value of the \emph{model}\\
+\textbf{ASMC v2} & adaptive-gain supertwisting SMC, friction-circle gain ceiling
+                  recomputed per tick & CT$\to$ASMC: value of \emph{adaptation}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three are tuned by the same black-box optimizer against the same scalar objective on
+the same trajectory tiers, then evaluated through the same frozen state estimator.
+Anything that makes one controller's objective differ from another's is treated as a bug,
+not a detail. MPC was part of the original plan and is deferred out of this iteration
+(diverges on four velocity-demanding trajectories; its \texttt{use\_ltv=false}-is-better
+anomaly remains unresolved).
+
+\section{The system under test}
+\paragraph{Plant.} The 30-state voltage-input plant (\texttt{hybrid\_ctrl/plant.jl}):
+slip--spin--LuGre contact physics (per-wheel bristle states, passive roller spin) driven
+through a DC-motor model with back-EMF,
+\begin{equation}
+\tau = G\eta\,(K_t i - \tau_f),\qquad i=(V-K_bG\omega)/R_a,\qquad |V|\le24\ \text{V},
+\end{equation}
+with a 200 V/s slew clamp in the mixer. Actuator authority falls linearly with wheel
+speed and vanishes at the no-load speed $V_{max}/(K_bG)=27.73$ rad/s --- the hard
+feasibility wall of \S3. (Derived in
+\texttt{docs/Mecanum\_Analytical\_Limits\_AxisVel\_AccelEnvelope\_BackEMF.tex}.)
+
+\paragraph{Sensors (\texttt{:realistic} suite).} IMU and wheel encoders at 1000 Hz;
+optical flow at 100 Hz with 2\% dropout; 100 Hz pose fixes with per-run biases and 0.5\%
+outliers --- industrial white noise plus deliberately uncalibrated consumer-grade biases.
+Neither the estimator nor (in the deployable configuration) the controllers ever see the
+true state.
+
+\paragraph{Estimator.} \texttt{ESKFEstimatorV3}: a 13-state error-state Kalman filter
+with a yaw-acceleration random-walk state (a type-2 tracker, added to remove a
+structural yaw-rate lag). It is tuned once and \textbf{frozen} before any controller
+comparison --- the \emph{estimator-first methodology} --- so a control-law difference can
+never be an observer difference in disguise.
+
+\paragraph{Three feedback regimes --- not two.} This distinction runs through the whole
+campaign; getting it wrong inverts conclusions:
+\begin{enumerate}[nosep]
+\item \textbf{clean oracle} --- perfect state feedback; an upper bound.
+\item \textbf{noisy oracle} --- true state \emph{plus raw, unfiltered sensor noise}
+      written into the controller's state estimate. There is \emph{no estimator} in this
+      path; it is a pessimistic no-filtering bound, not a deployment model.
+\item \textbf{ESKF} --- the deployable path: \texttt{:realistic} sensors through the
+      frozen filter.
+\end{enumerate}
+The ESKF beats the noisy oracle \emph{by construction} (a tuned filter beats raw noise),
+so ``ESKF vs noisy oracle'' is \textbf{not} the cost of state estimation --- that cost is
+ESKF vs \emph{clean} oracle.
+
+\section{Feasibility first: the v3 trajectory tiers}
+The predecessor tier (\texttt{train12}) contained trajectories the hardware cannot fly,
+and the tuner was spending most of its budget on them: \texttt{spiral\_orbit\_stress}
+alone carried 72--81\% of the training tracking term while sitting at 85.4\% of the
+motor's no-load speed. The v3 tiers (\texttt{train14\_v3}, \texttt{test\_v3}) screen
+every candidate reference over its own full duration against two walls:
+\begin{enumerate}[nosep]
+\item \textbf{Motor / back-EMF (hard):} max per-wheel speed $(V_x\pm V_y\pm
+(l{+}h)\dot\psi)/R$ against the 27.73 rad/s no-load speed; past $\sim$85\% of no-load no
+gain law can arrest error growth. v3 targets $\le70\%$ for margin.
+\item \textbf{Friction circle (soft):} per-wheel contact utilisation. Brief excursions
+are momentary slip the LuGre plant absorbs --- measured to be harmless --- so this wall
+informs but does not veto.
+\end{enumerate}
+The point of the rebuild: a controller comparison is only meaningful where the hardware
+can actually go.
+
+\section{The objective --- one scalar, three terms}
+\begin{equation}
+\text{score} \;=\; \text{tracking}_{v3} \;+\; 0.05\,(\text{ce}/V_{MAX}) \;+\;
+0.36\,(\text{chatter}/\text{CHATTER}_{REF}).
+\end{equation}
+\textbf{tracking$_{v3}$}: six tolerance-normalised terms (position and heading $\times$
+terminal / peak / typical), divided by a per-trajectory extent scaler $k_{traj}$. The v2
+metric scored four samples out of 12k--60k per run (terminal and argmax only) and was
+blind to mid-path oscillation; the time-normalised integral (``typical'') term is the
+fix, with tolerances calibrated from measured achieved ratios. A term of 1.0 means
+``exactly at target''. \textbf{ce}: mean summed wheel-voltage magnitude (energy proxy).
+\textbf{chatter}: mean per-tick total variation of the wheel-voltage command against
+$\text{CHATTER}_{REF}=0.8$ V/ms, the mixer's own slew clamp. This term exists because an
+entire arc of v2 tuning kept railing on chatter the objective could not price (chatter
+had been normalised by $V_{MAX}$ --- a voltage dividing a slew rate, $\sim$30--100$\times$
+too weak). $\lambda_{chatter}=0.36$ is \emph{balance-preserving, not re-derived}: it
+reproduces the accepted v2 tracking share (29.9\%) under the rescaled v3 metric, and the
+objective code refuses $\lambda_{chatter}>1.44$ under \texttt{--metric v3} so a
+carried-over v2 value cannot pass silently.
+
+\paragraph{The estimator has its own objective.} A \emph{replay} score (estimator vs
+ground truth on logged trajectories, no controller in the loop), same
+tolerance-normalised shape, with velocity error \emph{during slip} priced twice
+(\texttt{lam\_slip}=1.0): the point of an estimator on this platform is that its model
+mismatch \emph{is} slip. It converged to $\sim$71\% a velocity-estimation objective,
+matching what the controllers' inner loops consume.
+
+\section{The protocol --- five stages, in order}
+\begin{enumerate}[nosep]
+\item \textbf{Estimator tuning (first, then frozen).} 5 seeds over a 7-dim log-scaled
+      gain space, replay objective, \texttt{:realistic} sensors. All seeds converge to
+      the same estimator within 0.23\% on a common noise realisation; seed 4 adopted and
+      frozen for the whole campaign --- including tiers it was not tuned on.
+\item \textbf{Feasibility screening} of trajectory tiers (\S3).
+\item \textbf{Clean controller tuning} --- 5 seeds each, cold start, oracle-clean
+      feedback, \texttt{train14\_v3}, convergence by plateau detection (the v1 tuner was
+      caught terminating mid-descent, which invalidated its scatter claims).
+\item \textbf{Noisy controller tuning} --- 4 seeds each, warm-started from the same run's
+      clean optimum, feedback = noisy oracle. Run for all three controllers or none, so
+      a noisy-tuned ASMC is never quoted against clean-tuned PIDs.
+\item \textbf{Evaluation under three feedback regimes} --- the six converged configs
+      (3 controllers $\times$ clean/noisy-tuned) on fresh sensor seeds 101--105:
+      oracle-clean, oracle-noisy, and through the frozen ESKF (420 runs: $6\times14$
+      trajectories $\times$ 5 seeds, zero non-converged). The held-out
+      \texttt{test\_v3} leg (generalisation of the final estimator$+$controller stack)
+      completes the campaign: 288 oracle sims $+$ 240 ESKF runs --- \S6 and
+      \texttt{RESULTS\_v3.md} \S9.
+\end{enumerate}
+Throughout: one OS process per seed (the pipeline has global mutable state), BLAS pinned
+to one thread for determinism, \texttt{stop\_reason} recorded per run, and outputs under
+\texttt{runs\_*/} never hand-edited.
+
+\section{Headline results}
+Full tables and caveats in \texttt{RESULTS\_v3.md}; the structural findings:
+
+\paragraph{PID-CT wins every regime.} Clean oracle 0.14340 vs ASMC 0.15318 (no seed
+overlap; ordering PID-CT $<$ PID-FB $<$ ASMC); noisy oracle; and frozen-ESKF closed loop
+0.34127, paired 69/70 and 70/70 against ASMC and PID-FB.
+
+\paragraph{Noisy tuning does not transfer to deployment.} It helps against the noisy
+oracle it was tuned on (ASMC 5/5, CT 5/5 paired) but the advantage vanishes through the
+real ESKF, and it \emph{damaged} ASMC's heading $\sim$2$\times$ everywhere. Deploy
+clean-tuned configs.
+
+\paragraph{Real state estimation costs $+0.20$ of score, uniformly.} Against clean
+oracle, essentially identical across all six configs (42.9--45.1\% of the
+clean$\to$unfiltered gap recovered): the estimator's contribution is
+controller-independent --- exactly what makes a frozen observer a fair basis for
+comparison.
+
+\paragraph{The error budget is a three-stage story.} Sensor injection (identical across
+configs by construction) $\to$ ESKF survival (74--79\% of injected velocity error
+removed; pose removal flat at $\sim$67.6\% on every trajectory) $\to$ controller
+tracking, where essentially \emph{all} inter-controller spread lives. The estimator is
+common mode; only the tracking stage discriminates control laws.
+
+\paragraph{CT's one weakness is heading under sustained yaw.} Best heading on 9 of 14
+trajectories ($\sim$1.1 mrad), collapsing to 29.8/37.6 mrad on exactly the two
+sustained-yaw stress trajectories --- the same two where its yaw integral clamp fires on
+17--20\% of ticks (0.0\% elsewhere). Three independent measurements agree; whether the
+clamp binding \emph{harms} (vs merely binds) is not yet established.
+
+\paragraph{Much of the tier is at the estimator's noise floor.} On 7 of 14 trajectories,
+tracking error ($\sim$2--3 mm) sits at or below the estimator's own pose accuracy
+($\sim$3.2 mm): further controller improvement there is unmeasurable with this sensor
+suite, so the comparison is decided by the handful of trajectories where tracking rises
+clear of the floor.
+
+\paragraph{Heading is the ESKF's best channel; yaw rate is its worst.} Heading sees
+6.9$\times$ error removal once an 11 ms startup transient on
+non-zero-initial-heading references is accounted for; yaw rate sees only $\sim$52\%
+removal --- the gyro is its only source, with no absolute fix to lean on.
+
+\paragraph{Generalisation (\texttt{test\_v3}).} The held-out tier answers whether any of
+the above transfers to trajectories the tuning never saw. Three cautions and one
+headline:
+\begin{itemize}[nosep]
+\item \textbf{Anchor caveat.} \texttt{coupled\_vomega\_anchor} is combo-identical to the
+      training tier's \texttt{coupled\_vomega\_stress} --- a deliberate cross-tier
+      consistency check, which passes bit-exactly ($\pm0.000000$) --- and must be
+      excluded from every generalisation claim. It is the worst-tracked entry in either
+      tier, so leaving it in would dominate any mean. The tier therefore yields
+      \textbf{7 genuinely held-out trajectories}, 3 on profiles never seen in tuning.
+\item \textbf{PID-CT generalises as the winner, unambiguously.} Clean-tuned PID-CT beats
+      ASMC and PID-FB \textbf{35/35 paired} each on the held-out set and is first on
+      every individual held-out trajectory --- the campaign's most robust result.
+\item \textbf{The ASMC-vs-PID-FB ordering does not generalise.} Their training-tier gap
+      was carried by a single trajectory (\texttt{coupled\_vomega\_stress}, 66\% of
+      ASMC's gap); excluding it, they are statistically indistinguishable (23/35 and
+      8/35). The defensible claim: \textbf{ASMC and PID-FB are equivalent, and PID-CT
+      beats both.}
+\item \textbf{The estimator is tier-invariant.} Every error-budget channel lands within
+      $\sim$3 percentage points of its training value, and on all 7 held-out
+      trajectories every controller tracks to 1.6--4.2 mm / 1.0--2.5 mrad. The heading
+      collapses occur only on the anchor --- a \emph{training} trajectory --- consistent
+      with CT's yaw-clamp weakness being a sustained-yaw property, not a generalisation
+      failure.
+\end{itemize}
+
+\section{Reading rules}
+\begin{enumerate}[nosep]
+\item \textbf{Never mix tuning-stage scores with eval scores} --- different noise
+      realisations, overlapping ranges.
+\item \textbf{Pair, don't average, across realisations} --- realisation variance
+      ($\sim$6--7\% eval, $\sim$16\% tuning) swamps controller differences
+      ($\sim$2--4\%). Every ordering claim is a paired 5/5 or 4/4, never a difference of
+      marginal means.
+\item \textbf{Best-seed selection under noise is confounded} --- seed 4 is both the best
+      seed and the easiest realisation for all three controllers; applied identically,
+      so cross-controller comparison holds.
+\item \textbf{Absolute values, never \% degradation} --- a better clean tracker reads a
+      worse \% for the same absolute result.
+\item \textbf{Three feedback regimes, not interchangeable} --- \S2.
+\end{enumerate}
+
+\section{Reproduction map}
+\begin{center}\footnotesize
+\begin{tabular}{ll}
+\toprule
+Piece & Where\\
+\midrule
+plant (untouchable v1) & \texttt{hybrid\_ctrl/plant.jl, scheduler.jl, mixer.jl}\\
+v2 controllers + search spaces & \texttt{hybrid\_ctrl\_v2/controllers\_v2.jl, tune\_controller\_v2.jl}\\
+objective + trajectory tiers & \texttt{controller\_tuning/stage\_objective.jl, trajsets.jl}\\
+tuning drivers & \texttt{run\_stage\_asmc\_v3.bat, run\_stage\_pid\_v3.bat} (noisy warm-starts)\\
+estimator tuning & \texttt{estimator\_tuning/} (objective\_v2, param\_space\_v4, replay)\\
+frozen estimator config & \texttt{runs\_estimator\_v4\_mu0p5\_train12/seed4/best\_config.json}\\
+converged controller configs & \texttt{runs\_asmc\_v3/, runs\_pid\_v3/}\\
+closed-loop ESKF eval & \texttt{eval\_v3\_eskf.jl}, data \texttt{runs\_eskf\_v3\_train14/}\\
+diagnostics & \texttt{diag\_v3\_pid\_imax\_binding.jl, diag\_v3\_error\_budget.jl}\\
+provenance / verification & \texttt{metric\_v3\_\{calib,verify\}.jl, scalers\_v3.jl, lambda\_v3\_verify.jl}\\
+feasibility theory & \texttt{docs/Mecanum\_Analytical\_Limits\_AxisVel\_AccelEnvelope\_BackEMF.tex}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Deliberately not done (yet)}
+\begin{itemize}[nosep]
+\item \textbf{MPC} --- deferred (\S1).
+\item \textbf{\texttt{test\_v3} generalisation} --- \textbf{done} (\S6): PID-CT
+      generalises 35/35; ASMC/PID-FB tie. Caveat: the tier yields 7 held-out
+      trajectories, not 8 (anchor is combo-identical to a training entry).
+\item \textbf{CT yaw integral budget sensitivity} --- the clamp is measured to
+      \emph{bind}; that it \emph{harms} is unmeasured.
+\item \textbf{ESKF yaw-rate re-weighting} --- interacts with the CT heading finding; the
+      obvious next experiment.
+\item \textbf{$\hat\psi$ initialisation from the first pose fix} --- removes the 11 ms
+      startup transient that makes heading statistics incomparable across
+      mixed-initial-heading tiers.
+\end{itemize}
+
+\end{document}

@@ -168,6 +168,26 @@ function aggregate_v3(outdir)
     ORACLE_NOISY = Dict("ASMC ct(s2)"=>0.53168, "ASMC nt(s4)"=>0.51838,
                         "PID-CT ct(s5)"=>0.50372, "PID-CT nt(s4)"=>0.49799,
                         "PID-FB ct(s3)"=>0.53135, "PID-FB nt(s4)"=>0.53199)
+    # Those baselines were measured on train14_v3. `k_traj` and the trajectory
+    # mix both differ per tier, so comparing a test_v3 ESKF score against a
+    # train14_v3 oracle score is meaningless -- suppress the table off-tier
+    # rather than print a difference of two different populations.
+    if !occursin("train14", basename(outdir))
+        println("\n[baseline comparison suppressed: the stored oracle baselines are train14_v3.")
+        println(" Scores across tiers are NOT comparable in magnitude (different k_traj and")
+        println(" trajectory mix) -- compare RANKING and each controller's train->test delta.]")
+        CSV.write(joinpath(outdir, "summary_by_config.csv"),
+                  combine(groupby(ok, :controller),
+                          :score => mean => :score_mean, :score => std => :score_std,
+                          :tracking => mean => :tracking_mean, :chatter => mean => :chatter_mean,
+                          :ce => mean => :ce_mean, :est_pos => mean => :est_pos_mean,
+                          nrow => :n))
+        CSV.write(joinpath(outdir, "summary_by_traj.csv"),
+                  combine(groupby(ok, [:controller, :trajectory]),
+                          :score => mean => :score_mean, :tracking => mean => :tracking_mean))
+        println("\nwrote summary_by_config.csv / summary_by_traj.csv to $outdir")
+        return
+    end
     println("\n=== ESKF against BOTH oracle baselines (same 5 realisations) ===")
     println("clean = perfect state (upper bound); noisy-oracle = UNFILTERED sensor noise as")
     println("state, no estimator (pessimistic bound). ESKF is the deployable path between them.")

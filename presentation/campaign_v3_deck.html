@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>v3 Controller/Estimator Campaign — Mecanum Digital Twin — VNIT</title>
+<!-- ===================== Academic Navy theme (same as deck.html) ===================== -->
+<style>
+:root{
+  --navy:#10243E; --navy2:#1B3A5B; --steel:#3E6691; --steell:#7E9BBE;
+  --gold:#B07D2B; --goldl:#D8AE5C; --ink:#1C2530; --light:#EEF2F7;
+  --paper:#FFFFFF; --grid:#C9D3DF; --red:#9B2D30; --green:#2E6B4F;
+  --serif:"Palatino Linotype","Book Antiqua",Georgia,serif;
+  --sans:"Segoe UI",system-ui,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:#5b6470;}
+body{font-family:var(--serif);color:var(--ink);counter-reset:slide;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+
+.slide{
+  position:relative;width:1280px;height:720px;background:var(--paper);
+  margin:18px auto;overflow:hidden;display:flex;flex-direction:column;
+  counter-increment:slide;box-shadow:0 4px 18px rgba(0,0,0,.35);
+}
+/* one 16:9 page per slide for PDF export */
+@media print{
+  html,body{background:#fff;}
+  @page{size:13.333in 7.5in;margin:0;}
+  .slide{margin:0;box-shadow:none;page-break-after:always;break-after:page;}
+  .slide:last-child{page-break-after:auto;break-after:auto;}
+}
+/* header band */
+.hdr{height:60px;background:var(--navy);color:#fff;display:flex;align-items:center;
+  justify-content:space-between;padding:0 30px;flex:0 0 auto;}
+.hdr .sec{font-family:var(--sans);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--goldl);}
+.hdr .sec b{color:#fff;font-weight:600;}
+.hdr .brand{display:flex;align-items:center;gap:10px;}
+.hdr .brand img{height:38px;background:#fff;border-radius:5px;padding:2px 4px;}
+.hdr .brand .txt{font-family:var(--sans);font-size:11px;line-height:1.15;text-align:right;color:#dfe7f1;}
+.hdr .brand .txt b{display:block;color:#fff;font-size:12px;letter-spacing:.02em;}
+/* content */
+.body{flex:1 1 auto;padding:20px 34px 8px 34px;overflow:hidden;display:flex;flex-direction:column;min-height:0;}
+.body h1{font-size:27px;color:var(--navy);font-weight:600;line-height:1.12;margin-bottom:2px;}
+.body h1 .accent{color:var(--gold);}
+.subttl{font-family:var(--sans);font-size:13.5px;color:var(--steel);margin-bottom:10px;}
+.rule{height:3px;width:100%;background:linear-gradient(90deg,var(--gold) 0 64px,var(--grid) 64px 100%);margin:6px 0 12px;}
+/* footer */
+.ftr{height:30px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:0 30px;font-family:var(--sans);font-size:10.5px;color:#6a7686;border-top:1px solid var(--grid);}
+.ftr .pg::after{content:counter(slide);}
+.ftr .vn{color:var(--navy);font-weight:600;}
+
+/* typography helpers */
+.body p{font-size:16.5px;line-height:1.42;margin:6px 0;}
+ul{margin:4px 0 4px 20px;} li{font-size:16px;line-height:1.4;margin:4px 0;}
+.small li,.small p{font-size:14.3px;line-height:1.34;}
+.tiny{font-size:12.5px;line-height:1.3;}
+b.key,.k{color:var(--navy);font-weight:600;}
+.g{color:var(--gold);font-weight:600;}
+.rd{color:var(--red);font-weight:600;}
+.gr{color:var(--green);font-weight:600;}
+.st{color:var(--steel);font-weight:600;}
+
+/* layout */
+.cols{display:flex;gap:20px;flex:1 1 auto;min-height:0;}
+.col{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;}
+.c60{flex:1.5;} .c40{flex:1;} .c55{flex:1.22;} .c45{flex:1;}
+.panel{background:var(--light);border-left:4px solid var(--steel);border-radius:4px;padding:10px 14px;margin:8px 0;}
+.panel.gold{border-left-color:var(--gold);}
+.panel.red{border-left-color:var(--red);}
+.panel.green{border-left-color:var(--green);}
+.panel h3{font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--steel);margin-bottom:4px;}
+.panel.gold h3{color:var(--gold);} .panel.red h3{color:var(--red);} .panel.green h3{color:var(--green);}
+
+/* table */
+table{border-collapse:collapse;width:100%;font-family:var(--sans);}
+th,td{border:1px solid var(--grid);padding:3px 7px;font-size:12.5px;text-align:left;}
+th{background:var(--navy);color:#fff;font-weight:600;}
+tr:nth-child(even) td{background:var(--light);}
+td .u{color:#7a8390;}
+
+/* math sizing */
+mjx-container{font-size:96% !important;}
+.eqs mjx-container{font-size:104% !important;}
+.eqbox{background:var(--light);border:1px solid var(--grid);border-radius:5px;padding:6px 12px;margin:7px 0;}
+
+/* ===== title slide ===== */
+.title{background:var(--navy);color:#fff;justify-content:flex-start;}
+.title .tbar{height:8px;background:linear-gradient(90deg,var(--gold),var(--goldl));}
+.title .twrap{flex:1;display:flex;flex-direction:column;padding:46px 70px;}
+.title .toprow{display:flex;align-items:center;justify-content:space-between;}
+.title .toprow img{height:84px;background:#fff;border-radius:8px;padding:6px 8px;}
+.title .inst{font-family:var(--sans);text-align:right;font-size:14px;color:#cdd8e6;line-height:1.3;}
+.title .inst b{display:block;color:#fff;font-size:16px;}
+.title h1{font-family:var(--serif);font-size:42px;line-height:1.1;margin-top:42px;color:#fff;font-weight:600;}
+.title h1 .hl{color:var(--goldl);}
+.title .sub{font-family:var(--serif);font-size:19px;color:#c9d6e6;margin-top:16px;line-height:1.4;max-width:1000px;}
+.title .meta{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;
+  font-family:var(--sans);font-size:14px;color:#aebfd2;}
+.title .meta .conf{color:var(--goldl);font-weight:600;font-size:16px;letter-spacing:.04em;}
+.title .ph{color:var(--goldl);}
+
+/* section divider visual on outline */
+.toc{display:flex;flex-direction:column;gap:9px;margin-top:6px;}
+.toc .item{display:flex;align-items:center;gap:14px;background:var(--light);border-radius:6px;padding:10px 16px;border-left:5px solid var(--gold);}
+.toc .num{font-family:var(--sans);font-weight:700;color:#fff;background:var(--navy);border-radius:50%;
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 auto;}
+.toc .t{font-size:16.5px;color:var(--navy);font-weight:600;}
+.toc .d{font-family:var(--sans);font-size:12.5px;color:var(--steel);}
+
+/* flow boxes */
+.flow{display:flex;flex-direction:column;gap:7px;flex:1 1 auto;justify-content:center;}
+.frow{display:flex;align-items:center;justify-content:center;gap:0;}
+.fbox{border-radius:7px;padding:8px 12px;font-family:var(--sans);font-size:12.5px;line-height:1.25;
+  text-align:center;color:#fff;min-width:150px;max-width:230px;}
+.fbox .bt{font-weight:700;font-size:13px;display:block;margin-bottom:2px;}
+.fbox.julia{background:var(--navy);} .fbox.proc{background:var(--steel);}
+.fbox.data{background:var(--gold);} .fbox.stop{background:var(--red);}
+.fbox.pinn{background:var(--green);}
+.farr{color:var(--steel);font-size:24px;font-weight:700;padding:0 8px;}
+.fdown{color:var(--steel);font-size:22px;text-align:center;}
+.flab{font-family:var(--sans);font-size:10.5px;color:#7a8390;text-align:center;}
+</style>
+
+<!-- ===================== MathJax (local, tex->svg, self-contained) ===================== -->
+<script>
+window.MathJax={
+  tex:{inlineMath:[['\\(','\\)'],['$','$']],displayMath:[['$$','$$'],['\\[','\\]']]},
+  svg:{fontCache:'global'},
+  startup:{ready:()=>{MathJax.startup.defaultReady();
+    MathJax.startup.promise.then(()=>{document.body.classList.add('mj-done');});}}
+};
+</script>
+<script src="assets/tex-svg.js" id="MathJax-script" async></script>
+</head>
+<body>
+
+<!-- ============================= 1. TITLE ============================= -->
+<section class="slide title">
+  <div class="tbar"></div>
+  <div class="twrap">
+    <div class="toprow">
+      <img src="assets/vnit_logo.jpeg" alt="VNIT"/>
+      <div class="inst"><b>Visvesvaraya National Institute of Technology, Nagpur</b>
+        Department of Mechanical Engineering</div>
+    </div>
+    <h1>The <span class="hl">v3 Controller/Estimator Campaign</span><br/>
+        on the Mecanum Digital-Twin Plant</h1>
+    <div class="sub">A fair three-way control-law comparison — <b style="color:#fff">PID-FB / PID-CT / ASMC&nbsp;v2</b> —
+      on a voltage-input slip&ndash;spin&ndash;LuGre plant, through a frozen ESKF,
+      with feasibility-screened trajectories and paired statistics.</div>
+    <div class="meta">
+      <div>
+        <span class="ph">Vishvesh Koranne</span> &nbsp;&middot;&nbsp; Research Scholar<br/>
+        <span style="color:#8fa3ba">Guide: Prof. Shital S. Chiddarwar</span>
+      </div>
+      <div style="text-align:right">
+        <span class="conf">KUKA youBot &middot; slip&ndash;spin digital twin</span><br/>
+        <span style="color:#8fa3ba">VNIT Nagpur &middot; August 2026</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= 2. OUTLINE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec"><b>Overview</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Outline</h1><div class="rule"></div>
+    <div class="toc">
+      <div class="item"><div class="num">I</div><div><div class="t">The question — a two-step ablation</div>
+        <div class="d">PID-FB &middot; PID-CT &middot; ASMC v2 &middot; value of the model vs value of adaptation</div></div></div>
+      <div class="item"><div class="num">II</div><div><div class="t">The testbed</div>
+        <div class="d">Voltage-input plant with back-EMF &middot; realistic sensor suite &middot; frozen ESKF &middot; three feedback regimes</div></div></div>
+      <div class="item"><div class="num">III</div><div><div class="t">Feasibility screening &amp; the objective</div>
+        <div class="d">Two walls (back-EMF hard, friction soft) &middot; six-term tracking &middot; priced chatter</div></div></div>
+      <div class="item"><div class="num">IV</div><div><div class="t">Protocol — five stages</div>
+        <div class="d">Estimator first, then frozen &middot; clean / noisy tuning &middot; three-regime evaluation</div></div></div>
+      <div class="item"><div class="num">V</div><div><div class="t">Results &amp; findings</div>
+        <div class="d">PID-CT wins all regimes &middot; noisy tuning does not transfer &middot; the three-stage error budget &middot; CT's yaw weakness</div></div></div>
+      <div class="item"><div class="num">VI</div><div><div class="t">Reading rules &amp; next steps</div>
+        <div class="d">Paired statistics &middot; test_v3 leg in flight &middot; yaw-rate re-weighting</div></div></div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 3. THE QUESTION ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">I &middot; Question &nbsp; / &nbsp; <b>The ablation</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>One question, three control laws, <span class="accent">one scalar objective</span></h1>
+    <div class="subttl">Which control law should the platform fly — and how much survives real state estimation?</div>
+    <div class="rule"></div>
+    <table>
+      <tr><th style="width:14%">Controller</th><th style="width:56%">Structure</th><th>What it isolates</th></tr>
+      <tr><td><b>PID-FB</b></td><td>Cascaded IMC-reparameterized PID — 3 tuned \(\lambda_{inner}\) per axis, everything else derived from the plant model (pole cancellation, \(I_{max}\) from measured p95 wrench)</td><td>industrial baseline</td></tr>
+      <tr><td><b>PID-CT</b></td><td>Same cascade <b>+ computed-torque feedforward</b>, structurally matched to ASMC's equivalent control</td><td>FB&rarr;CT: value of the <b>model</b></td></tr>
+      <tr><td><b>ASMC v2</b></td><td>Adaptive-gain supertwisting SMC — friction-circle gain ceiling \(K_{max}\) recomputed per tick, smooth growth gate</td><td>CT&rarr;ASMC: value of <b>adaptation</b></td></tr>
+    </table>
+    <div class="panel gold" style="margin-top:12px"><h3>Fairness discipline</h3>
+      <p class="small">Same optimizer, same objective, same trajectory tiers, same frozen estimator.
+      Anything that makes one controller's objective differ from another's is treated as a <b class="rd">bug, not a detail</b>.
+      MPC deferred this iteration (diverges on 4 velocity-demanding trajectories; <span class="tiny">use_ltv anomaly unresolved</span>).</p></div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 4. PLANT & SENSORS ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Testbed &nbsp; / &nbsp; <b>Plant &amp; sensors</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>The plant is voltage-input: <span class="accent">back-EMF is the hard wall</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <p><b class="key">30-state slip–spin–LuGre plant</b> (per-wheel bristle states, passive roller spin)
+        driven through a DC-motor map evaluated every integration step:</p>
+        <div class="eqbox eqs">\[
+          \tau = G\eta\,(K_t i - \tau_f),\qquad
+          i = \frac{V - K_b\,G\,\omega}{R_a},\qquad |V|\le 24\ \mathrm{V}
+        \]</div>
+        <ul>
+          <li>Torque falls linearly with wheel speed; <b class="key">stall 9.12 N·m</b>, slope 0.337 N·m·s/rad</li>
+          <li><b class="rd">No-load wall</b> \(\omega_{nl}=V_{max}/(K_bG)=27.73\) rad/s — torque authority vanishes identically</li>
+          <li>Caps: \(V_x\le1.02\) m/s (73.5% nl), \(\dot\psi\le2.47\) rad/s <i>(motor-limited)</i>; \(V_y\le0.63\) m/s <i>(friction-limited)</i></li>
+        </ul>
+      </div>
+      <div class="col c45 small">
+        <div class="panel"><h3>:realistic sensor suite</h3>
+        <ul class="tiny">
+          <li><b>IMU</b> 1000 Hz — σ<sub>acc</sub> 0.05 m/s², σ<sub>gyro</sub> 3 mrad/s, biases, gyro RW</li>
+          <li><b>Encoders</b> 1000 Hz — 4000 cpr × gear, σ<sub>ω</sub> ≈ 0.19 rad/s, 2% scale factor</li>
+          <li><b>Optical flow</b> 100 Hz — σ 5 mm/s + 2% of speed, 2% dropout</li>
+          <li><b>Pose fix</b> 100 Hz — σ<sub>pos</sub> 0.02 m, σ<sub>ψ</sub> 0.6°, per-run biases, 0.5% outliers</li>
+        </ul></div>
+        <div class="panel red"><h3>Neither side sees truth</h3>
+        <p class="tiny">The estimator never sees the true state; in the deployable configuration the
+        <b>controllers</b> don't either — feedback is the ESKF output.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 5. THREE REGIMES ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">II &middot; Testbed &nbsp; / &nbsp; <b>Feedback regimes</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Three feedback regimes — <span class="accent">not two</span></h1>
+    <div class="subttl">Conflating them inverts conclusions; every number in the campaign is tagged by regime</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col">
+        <div class="panel green" style="height:92%"><h3>Clean oracle</h3>
+          <p class="small">Perfect state feedback.</p>
+          <p class="small">An <b>upper bound</b> on what any controller can do — the reference for what
+          estimation costs.</p></div>
+      </div>
+      <div class="col">
+        <div class="panel red" style="height:92%"><h3>Noisy oracle</h3>
+          <p class="small">True state <b>+ raw unfiltered sensor noise</b> written straight into the
+          controller's state estimate.</p>
+          <p class="small"><b>No estimator exists in this path</b> — a pessimistic no-filtering bound,
+          not a deployment model.</p></div>
+      </div>
+      <div class="col">
+        <div class="panel gold" style="height:92%"><h3>ESKF (deployable)</h3>
+          <p class="small">:realistic sensors through the frozen 13-state error-state Kalman filter
+          (yaw-acceleration state).</p>
+          <p class="small">Beats the noisy oracle <b>by construction</b> — a tuned filter beats raw noise.
+          The cost of estimation is ESKF vs <b>clean</b>, never ESKF vs noisy-oracle.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 6. FEASIBILITY ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">III &middot; Screening &nbsp; / &nbsp; <b>Feasibility tiers</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Feasibility first: <span class="accent">two walls</span>, evaluated per reference</h1>
+    <div class="subttl">train12 → train14_v3 / test_v3 — a comparison is only meaningful where the hardware can go</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <div class="panel red"><h3>Wall 1 — motor / back-EMF (HARD)</h3>
+          <p>Max per-wheel speed \((V_x\pm V_y\pm(l{+}h)\dot\psi)/R\) against
+          \(\omega_{nl}=27.73\) rad/s. Past ≈85% of no-load no torque exists to arrest error growth,
+          for <b>any gain law</b>. v3 targets ≤70% for margin.</p></div>
+        <div class="panel gold"><h3>Wall 2 — friction circle (SOFT)</h3>
+          <p>Per-wheel contact utilisation. Brief excursions are momentary slip the LuGre plant
+          absorbs — measured harmless (both &gt;1.0-util octagons are among the <i>best-tracked</i>).
+          Informs, does not veto.</p></div>
+      </div>
+      <div class="col c45 small">
+        <div class="panel"><h3>Why the tier had to be rebuilt</h3>
+          <ul>
+            <li><b>spiral_orbit_stress</b>: 85.4% of no-load, carried <b class="rd">72–81%</b> of the
+            training tracking term — the tuner was optimising against a trajectory no controller recovers</li>
+            <li>Old screen (\(V_y\le0.6\)) saw <b>neither</b> infeasible case — both had \(V_y=0.000\)</li>
+            <li>Every reference now evaluated over its <b>own full \(T_{total}\)</b> (9.5–85.3 s) —
+            a 12 s audit window once picked a combo that is 98.5% of no-load over its true duration</li>
+          </ul></div>
+        <p class="tiny" style="color:#6a7686">Worst-case wheel speed: train12 85.4% → train14_v3 67.3% of no-load.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 7. OBJECTIVE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">III &middot; Screening &nbsp; / &nbsp; <b>The objective</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>One scalar: tracking + energy + <span class="accent">priced chatter</span></h1>
+    <div class="rule"></div>
+    <div class="eqbox eqs" style="text-align:center">\[
+      \mathrm{score} \;=\; \mathrm{tracking}_{v3}
+      \;+\; 0.05\,\frac{ce}{V_{MAX}}
+      \;+\; 0.36\,\frac{chatter}{CHATTER_{REF}},
+      \qquad CHATTER_{REF}=0.8\ \mathrm{V/ms}
+    \]</div>
+    <div class="cols">
+      <div class="col c55 small">
+        <ul>
+          <li><b class="key">tracking<sub>v3</sub></b> — 6 tolerance-normalised terms (position &amp; heading ×
+          <i>terminal / peak / typical</i>), divided by a rotation-invariant per-trajectory extent scaler \(k_{traj}\).
+          Term = 1.0 means "exactly at target".</li>
+          <li>v2 scored <b>4 samples out of 12k–60k</b> (terminal + argmax) — blind to mid-path oscillation.
+          The time-normalised integral ("typical") is the fix; tolerances <b>calibrated</b>, not chosen.</li>
+          <li><b class="key">chatter</b> priced against the mixer's own slew clamp —
+          \(\lambda=0.36\) is <b>balance-preserving</b> (reproduces v2's accepted 29.9% tracking share), not re-derived;
+          the code <i>refuses</i> \(\lambda&gt;1.44\) under v3.</li>
+        </ul>
+      </div>
+      <div class="col c45 small">
+        <div class="panel red"><h3>Why chatter needed pricing</h3>
+          <p>Chatter had been normalised by \(V_{MAX}\) — a voltage dividing a slew rate,
+          <b>~30–100× too weak</b>. Three v2 box-widening rounds kept railing on a lever the
+          objective could not price. A term that cannot move the score is worse than no term.</p></div>
+        <div class="panel"><h3>Estimator's own objective</h3>
+          <p>Replay vs ground truth, same tolerance-normalised shape; velocity error
+          <b>during slip priced twice</b> — model mismatch on this platform <i>is</i> slip.
+          Converges to ~71% a velocity-estimation objective — what inner loops consume.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 8. PROTOCOL ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">IV &middot; Protocol &nbsp; / &nbsp; <b>Five stages</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Estimator first, then frozen — <span class="accent">then controllers</span></h1>
+    <div class="rule"></div>
+    <div class="flow">
+      <div class="frow">
+        <div class="fbox pinn"><span class="bt">1 · Tune ESKF (replay, 5 seeds)</span>7-dim log space · :realistic sensors · seed spread = noise artefact (0.23% on common realisation)</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox julia"><span class="bt">2 · Freeze seed 4</span>never re-tuned per tier — a control-law difference can never be an observer difference in disguise</div>
+      </div>
+      <div class="frow">
+        <div class="fbox proc"><span class="bt">3 · Clean tuning</span>5 seeds × 3 controllers · oracle-clean · train14_v3 · plateau-detected convergence (v1 was caught mid-descent)</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox proc"><span class="bt">4 · Noisy tuning</span>4 seeds × 3 controllers · warm-start from own clean optimum · noisy-oracle feedback · all three or none</div>
+      </div>
+      <div class="frow">
+        <div class="fbox data"><span class="bt">5 · Evaluate 6 configs × 3 regimes</span>fresh sensor seeds 101–105 · clean / noisy-oracle / frozen-ESKF · 420 closed-loop runs, zero non-converged</div>
+        <span class="farr">&rarr;</span>
+        <div class="fbox pinn"><span class="bt">+ test_v3 leg ✓</span>held-out generalisation, 7 unseen trajectories (3 unseen profiles): <b>PID-CT wins 35/35 paired vs each rival</b></div>
+      </div>
+    </div>
+    <p class="tiny" style="text-align:center;color:#6a7686">One OS process per seed (global mutable state) · BLAS pinned to 1 thread (determinism) · stop_reason recorded · runs_*/ never hand-edited</p>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 9. RESULTS I — ORACLE ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Results &nbsp; / &nbsp; <b>Oracle regimes</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Oracle feedback: <span class="accent">PID-CT wins clean and noisy</span></h1>
+    <div class="subttl">Lower score = better · eval on fresh sensor seeds 101–105 · paired statistics throughout</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55">
+        <table>
+          <tr><th>Config</th><th>clean score</th><th>noisy-oracle score</th></tr>
+          <tr><td><b>PID-CT</b> clean-tuned (s5)</td><td><b>0.14340</b></td><td>0.50372</td></tr>
+          <tr><td><b>PID-CT</b> noisy-tuned (s4)</td><td>0.14422</td><td><b>0.49799</b></td></tr>
+          <tr><td>PID-FB clean-tuned (s3)</td><td>0.14953</td><td>0.53135</td></tr>
+          <tr><td>PID-FB noisy-tuned (s4)</td><td>0.15492</td><td>0.53199</td></tr>
+          <tr><td>ASMC clean-tuned (s2)</td><td>0.15318</td><td>0.53168</td></tr>
+          <tr><td>ASMC noisy-tuned (s4)</td><td>0.15697</td><td>0.51838</td></tr>
+        </table>
+        <p class="tiny" style="margin-top:6px">Clean ordering <b>PID-CT &lt; PID-FB &lt; ASMC</b>, no family overlap,
+        seed spread 0.15–0.5%. Noisy-oracle ordering <b>PID-CT &lt; ASMC &lt; PID-FB</b>, 4/4 paired.</p>
+      </div>
+      <div class="col c45 small">
+        <div class="panel green"><h3>Noisy tuning helps — on its own realisation</h3>
+          <p>Paired per realisation: ASMC <b>5/5 better</b>, PID-CT <b>5/5 better</b>, PID-FB mixed
+          (structural — no feedforward, integrator at its anti-windup bound on 20.5% of ticks,
+          chatter already at 0.758 of the 0.8 cap: nowhere left to go).</p></div>
+        <div class="panel gold"><h3>But seed = noise draw</h3>
+          <p>Identical seed ordering for all three controllers (s4&lt;s2&lt;s3&lt;s1): the ~16% tuning
+          seed spread is <b>realisation variance</b>, not quality. Rankings are always paired, never
+          marginal means.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 10. RESULTS II — ESKF ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Results &nbsp; / &nbsp; <b>Closed loop through the ESKF</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Through the frozen ESKF: <span class="accent">the ranking holds</span></h1>
+    <div class="subttl">420 runs (6 configs × 14 trajectories × 5 noise seeds), zero non-converged</div>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55">
+        <table>
+          <tr><th>Config</th><th>ESKF score</th><th>track</th><th>chatter</th></tr>
+          <tr><td><b>PID-CT ct(s5)</b></td><td><b>0.34127</b></td><td>0.02393</td><td>0.532</td></tr>
+          <tr><td>PID-CT nt(s4)</td><td>0.34341</td><td>0.02624</td><td>0.532</td></tr>
+          <tr><td>PID-FB ct(s3)</td><td>0.36054</td><td>0.03315</td><td>0.554</td></tr>
+          <tr><td>PID-FB nt(s4)</td><td>0.36298</td><td>0.03149</td><td>0.563</td></tr>
+          <tr><td>ASMC nt(s4)</td><td>0.36320</td><td>0.04128</td><td>0.542</td></tr>
+          <tr><td>ASMC ct(s2)</td><td>0.36423</td><td>0.03658</td><td>0.554</td></tr>
+        </table>
+        <p class="tiny" style="margin-top:6px">Paired per (trajectory, seed), n=70:
+        <b>PID-CT beats ASMC 69/70, PID-FB 70/70</b> — best in all three regimes.
+        ASMC vs PID-FB: 33/70 — <b>tied</b> (the noisy-oracle ASMC edge does not survive real estimation).
+        On the held-out test_v3 tier: <b>PID-CT wins 35/35 against each rival</b> — the campaign's most robust result.</p>
+      </div>
+      <div class="col c45 small">
+        <div class="panel green"><h3>Cost of real estimation: +0.20, uniform</h3>
+          <p>ESKF vs clean oracle: +0.198 to +0.211 across all six configs; the filter recovers
+          <b>42.9–45.1% of the clean→unfiltered gap</b>. The estimator's contribution is
+          <b>controller-independent</b> — what a frozen observer is for.</p></div>
+        <div class="panel red"><h3>Noisy tuning does not transfer</h3>
+          <p>Its oracle-regime gains vanish through the ESKF, and it <b>damaged ASMC's heading ~2×
+          everywhere</b>. Deploy clean-tuned configs.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 11. ERROR BUDGET ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Results &nbsp; / &nbsp; <b>Error budget</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Three stages: <span class="accent">only the tracking stage discriminates</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <table>
+          <tr><th>Channel</th><th>Injected (sensors)</th><th>ESKF delivered</th><th>Removed</th></tr>
+          <tr><td>velocity</td><td>~13 mm/s</td><td>2.71 mm/s</td><td>~5×</td></tr>
+          <tr><td>position</td><td>~22 mm</td><td>3.25 mm</td><td>~7×</td></tr>
+          <tr><td>yaw rate</td><td>~4 mrad/s</td><td>2.33 mrad/s</td><td class="rd">~2× (weakest)</td></tr>
+          <tr><td>heading</td><td>~11 mrad</td><td>1.26 mrad</td><td class="gr">~9× (best)</td></tr>
+        </table>
+        <ul style="margin-top:8px">
+          <li>Stage (1) injection — <b>identical across configs by construction</b></li>
+          <li>Stage (2) ESKF survival — 74.2–78.5%, barely controller-dependent (frozen filter)</li>
+          <li>Stage (3) tracking — <b>essentially all inter-controller spread lives here</b></li>
+        </ul>
+      </div>
+      <div class="col c45 small">
+        <div class="panel gold"><h3>Noise floor limits the comparison</h3>
+          <p>On <b>7 of 14</b> trajectories, tracking error (~2–3 mm) sits at or below the estimator's
+          own pose accuracy (~3.2 mm) — further controller improvement there is <b>unmeasurable</b>
+          with this sensor suite. The comparison is decided by the few trajectories that rise clear
+          of the floor.</p></div>
+        <div class="panel"><h3>Heading's "bad mean" was an artefact</h3>
+          <p>Three references start at \(\psi(0)\neq0\); the ESKF initialises at 0 and converges in
+          <b>11.0 ms</b> (same on all three, two different initial errors). Steady-state heading is the
+          estimator's <i>best</i> channel.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 12. CT HEADING WEAKNESS ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">V &middot; Results &nbsp; / &nbsp; <b>One weakness, triangulated</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>PID-CT's heading weakness: <span class="accent">two trajectories, three measurements</span></h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col c55 small">
+        <table>
+          <tr><th>Trajectory</th><th>PID-CT heading</th><th>PID-FB heading</th><th>CT yaw I-clamp</th></tr>
+          <tr><td>9 of 14 (benign)</td><td class="gr"><b>1.04–1.31 mrad (best)</b></td><td>1.13–1.96</td><td>0.0% of ticks</td></tr>
+          <tr><td>coupled_vomega_stress</td><td class="rd">29.8–38.2 mrad</td><td>1.28</td><td class="rd">19.9%</td></tr>
+          <tr><td>spiral_orbit_stress</td><td class="rd">37.6–46.8 mrad</td><td>2.35</td><td class="rd">17.0%</td></tr>
+        </table>
+        <p style="margin-top:8px">Three independent measurements land on the same two sustained-yaw
+        trajectories: HEAD-sum concentration, integral-clamp saturation fraction, and closed-loop
+        heading tracking in physical units.</p>
+      </div>
+      <div class="col c45 small">
+        <div class="panel"><h3>Mechanism (candidate #1, confirmed binding)</h3>
+          <p>CT's \(I_{max}\) is <b>derived, not tuned</b> — \(K_i I_{max}\) = measured wrench budget,
+          sized at p95 of integral demand. On sustained yaw the clamp fires; whether binding
+          <i>harms</i> (vs does its job) needs a budget-sensitivity run.</p></div>
+        <div class="panel gold"><h3>It compounds with the estimator</h3>
+          <p>Yaw rate is the ESKF's weakest channel (~2× removal, gyro-only) <b>and</b> CT's weakest
+          tracking channel — one fix (rate re-weighting or \(I_{max}\) re-derivation) attacks both.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 13. READING RULES ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Reading rules &nbsp; / &nbsp; <b>Anti-patterns</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Five rules that keep these numbers honest</h1>
+    <div class="subttl">Each rule exists because its violation produced a wrong conclusion at some point in the project</div>
+    <div class="rule"></div>
+    <div class="col small" style="justify-content:center">
+      <ul>
+        <li><b class="key">Never mix tuning-stage scores with eval scores</b> — different noise realisations,
+        overlapping ranges.</li>
+        <li><b class="key">Pair, don't average, across realisations</b> — realisation variance (~6–7% eval,
+        ~16% tuning) swamps controller differences (~2–4%). Every ordering claim is a paired 5/5 or 4/4.</li>
+        <li><b class="key">Best-seed selection under noise is confounded</b> — seed 4 is simultaneously the
+        best seed and the easiest realisation for all three controllers (applied identically, so
+        cross-controller comparison holds).</li>
+        <li><b class="key">Absolute values, never % degradation</b> — a better clean tracker reads a
+        <i>worse</i> % for the same absolute result.</li>
+        <li><b class="key">Three feedback regimes, not interchangeable</b> — ESKF-minus-noisy-oracle is
+        <i>not</i> "the cost of state estimation"; that cost is ESKF vs clean oracle. Getting this wrong
+        inverts the sign of the conclusion.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+<!-- ============================= 14. NEXT ============================= -->
+<section class="slide">
+  <div class="hdr"><div class="sec">VI &middot; Next &nbsp; / &nbsp; <b>Open items</b></div>
+    <div class="brand"><img src="assets/vnit_logo.jpeg"/><div class="txt"><b>VNIT Nagpur</b>Mech. Engg.</div></div></div>
+  <div class="body">
+    <h1>Generalised to held-out trajectories — what remains open</h1>
+    <div class="rule"></div>
+    <div class="cols">
+      <div class="col small">
+        <ul>
+          <li><b class="key">test_v3 generalisation ✓</b> — 7 genuinely held-out trajectories
+          (3 unseen profiles; the 8th is a deliberate anchor, bit-identical across tiers).
+          <b>PID-CT: 35/35 paired vs each rival, first on every held-out trajectory.</b>
+          ASMC vs PID-FB does <i>not</i> generalise — their training-tier gap was one
+          trajectory; the defensible claim is <b>ASMC ≡ PID-FB, PID-CT beats both</b>.</li>
+          <li><b class="key">Estimator is tier-invariant</b> — every error-budget channel within
+          ~3 pp of its training value; all controllers track 1.6–4.2 mm / 1.0–2.5 mrad on
+          held-out data.</li>
+        </ul>
+      </div>
+      <div class="col small">
+        <ul>
+          <li><b class="key">CT yaw \(I_{max}\) budget sensitivity</b> — the clamp is measured to
+          <i>bind</i>; that it <i>harms</i> is unmeasured.</li>
+          <li><b class="key">ESKF yaw-rate re-weighting</b> — weakest channel (~2× removal), gyro-only;
+          interacts with the CT heading finding.</li>
+          <li><b class="key">\(\hat\psi(0)\) from the first pose fix</b> — removes the 11 ms startup
+          transient on non-zero-initial-heading references.</li>
+          <li><b class="key">MPC</b> — deferred; the use_ltv anomaly (false better than true) remains
+          unresolved from v2.</li>
+          <li><b class="key">Downstream</b> — PINN γ̂-observer tuning &amp; force reconstruction consume
+          this stack with noisy estimator-fed inputs (train-like-you-test), oracle retained as unit test
+          and error budget.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="panel green" style="margin-top:10px"><h3>Headline</h3>
+      <p class="small" style="margin:2px 0"><b>PID-CT (cascaded feedforward PID) is the deployment candidate</b> —
+      best in clean oracle, noisy oracle, through the frozen ESKF (69/70, 70/70), <b>and on held-out
+      trajectories (35/35 vs each rival)</b> — with one mapped weakness: heading under sustained yaw.</p></div>
+  </div>
+  <div class="ftr"><span>v3 Controller/Estimator Campaign</span><span class="vn">VNIT Nagpur</span><span class="pg">&nbsp;&middot;&nbsp;</span></div>
+</section>
+
+</body>
+</html>

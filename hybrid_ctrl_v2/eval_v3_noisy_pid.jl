@@ -20,7 +20,15 @@
 const ROOT = abspath(joinpath(@__DIR__, ".."))
 cd(ROOT)
 using Printf, Statistics, Serialization
-const JLS = "hybrid_ctrl_v2/results_v3/pid_v3_noisy_eval.jls"
+# Trajectory tier, overridable via the V3_TIER env var for the held-out
+# :test_v3 evaluation. Outputs are tier-SUFFIXED whenever the tier is not the
+# default, so a test run can never overwrite the train14_v3 results the campaign
+# tables in RESULTS_v3.md are built from.
+# NOTE scores are NOT comparable in magnitude across tiers -- k_traj and the
+# trajectory mix both differ. Compare RANKING and each config's train->test delta.
+const TIER = Symbol(get(ENV, "V3_TIER", "train14_v3"))
+const TSFX = TIER === :train14_v3 ? "" : "_" * String(TIER)
+const JLS = "hybrid_ctrl_v2/results_v3/pid_v3_noisy_eval$(TSFX).jls"
 const NOISE = (101, 102, 103, 104, 105)
 const CFGNAMES = ("FB (seed3)", "CT (seed5)")
 
@@ -73,7 +81,7 @@ function kw_of(v, s)
      N=g["N"], feedforward=g["feedforward"])
 end
 CFG = (CFGNAMES[1] => kw_of("fb", 3), CFGNAMES[2] => kw_of("ct", 5))
-trs = collect(trajset(:train14_v3, "trajectory_files_run_0p5_main"))
+trs = collect(trajset(TIER, "trajectory_files_run_0p5_main"))
 
 "aggregate one (config, oracle, seed) over the 14 trajectories"
 function evalrun(kw, oracle, sd)

@@ -30,7 +30,15 @@ end
 CFG = (("ASMC",   :asmc, asmc_kw(2)),
        ("PID-CT", :pid,  pid_kw("ct", 5)),
        ("PID-FB", :pid,  pid_kw("fb", 3)))
-trs = collect(trajset(:train14_v3, "trajectory_files_run_0p5_main"))
+# Trajectory tier, overridable via the V3_TIER env var for the held-out
+# :test_v3 evaluation. Outputs are tier-SUFFIXED whenever the tier is not the
+# default, so a test run can never overwrite the train14_v3 results the campaign
+# tables in RESULTS_v3.md are built from.
+# NOTE scores are NOT comparable in magnitude across tiers -- k_traj and the
+# trajectory mix both differ. Compare RANKING and each config's train->test delta.
+const TIER = Symbol(get(ENV, "V3_TIER", "train14_v3"))
+const TSFX = TIER === :train14_v3 ? "" : "_" * String(TIER)
+trs = collect(trajset(TIER, "trajectory_files_run_0p5_main"))
 NM  = [String(t.name) for t in trs]
 
 R = Dict{String,Any}()
@@ -48,7 +56,7 @@ for (nm, c, kw) in CFG
     R[nm] = (tk=tk, ce=ce, ch=ch, pp=pp)
     @printf("done %s\n", nm); flush(stdout)
 end
-serialize("hybrid_ctrl_v2/results_v3/three_way_components.jls", R)
+serialize("hybrid_ctrl_v2/results_v3/three_way_components$(TSFX).jls", R)
 println("serialised")
 
 println("\n=== SCORE DECOMPOSITION (mean over 14 trajectories) ===")

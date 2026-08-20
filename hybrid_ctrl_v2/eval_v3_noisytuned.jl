@@ -21,13 +21,21 @@
 const ROOT = abspath(joinpath(@__DIR__, ".."))
 cd(ROOT)
 using Printf, Statistics, Serialization
-const JLS   = "hybrid_ctrl_v2/results_v3/v3_noisytuned_eval.jls"
+# Trajectory tier, overridable via the V3_TIER env var for the held-out
+# :test_v3 evaluation. Outputs are tier-SUFFIXED whenever the tier is not the
+# default, so a test run can never overwrite the train14_v3 results the campaign
+# tables in RESULTS_v3.md are built from.
+# NOTE scores are NOT comparable in magnitude across tiers -- k_traj and the
+# trajectory mix both differ. Compare RANKING and each config's train->test delta.
+const TIER = Symbol(get(ENV, "V3_TIER", "train14_v3"))
+const TSFX = TIER === :train14_v3 ? "" : "_" * String(TIER)
+const JLS   = "hybrid_ctrl_v2/results_v3/v3_noisytuned_eval$(TSFX).jls"
 const NOISE = (101, 102, 103, 104, 105)
 const NAMES = ("ASMC nt(s4)", "PID-CT nt(s4)", "PID-FB nt(s4)")
 # clean-tuned counterparts, already evaluated on these same realisations
-const PRIOR = (("ASMC nt(s4)",   "ASMC ct(s2)",   "hybrid_ctrl_v2/results_v3/asmc_v3_noisy_eval.jls", "ASMC (seed2)"),
-               ("PID-CT nt(s4)", "PID-CT ct(s5)", "hybrid_ctrl_v2/results_v3/pid_v3_noisy_eval.jls",  "CT (seed5)"),
-               ("PID-FB nt(s4)", "PID-FB ct(s3)", "hybrid_ctrl_v2/results_v3/pid_v3_noisy_eval.jls",  "FB (seed3)"))
+const PRIOR = (("ASMC nt(s4)",   "ASMC ct(s2)",   "hybrid_ctrl_v2/results_v3/asmc_v3_noisy_eval$(TSFX).jls", "ASMC (seed2)"),
+               ("PID-CT nt(s4)", "PID-CT ct(s5)", "hybrid_ctrl_v2/results_v3/pid_v3_noisy_eval$(TSFX).jls",  "CT (seed5)"),
+               ("PID-FB nt(s4)", "PID-FB ct(s3)", "hybrid_ctrl_v2/results_v3/pid_v3_noisy_eval$(TSFX).jls",  "FB (seed3)"))
 
 function report(R, LAM, V_MAX_, CHATTER_REF_)
     for nm in NAMES
@@ -117,7 +125,7 @@ end
 CFG = ((NAMES[1], :asmc, asmc_kw("hybrid_ctrl_v2/runs_asmc_v3/seed4/asmc_v2_noisy/best_config.json")),
        (NAMES[2], :pid,  pid_kw("hybrid_ctrl_v2/runs_pid_v3/seed4/pid_v2_ct_noisy/best_config.json")),
        (NAMES[3], :pid,  pid_kw("hybrid_ctrl_v2/runs_pid_v3/seed4/pid_v2_fb_noisy/best_config.json")))
-trs = collect(trajset(:train14_v3, "trajectory_files_run_0p5_main"))
+trs = collect(trajset(TIER, "trajectory_files_run_0p5_main"))
 
 "aggregate one (config, oracle, seed) over the 14 trajectories"
 function evalrun(c, kw, oracle, sd)
