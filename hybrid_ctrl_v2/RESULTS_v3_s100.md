@@ -191,3 +191,59 @@ becomes affordable.
 * Held-out caveat carried over from the archived campaign: `coupled_vomega_anchor` in
   test_v3 is combo-identical to a training entry — generalisation claims rest on the
   other 7 trajectories.
+
+## 9. Statistical significance (paired tests, frozen-ESKF scores)
+
+Script: `stats_significance_s100.py` (+ `.bat`). Pairing unit is
+(trajectory, noise seed) — the seed sets the noise realisation and the trajectory set
+is a shared design, so differences are paired, never pooled. Two aggregation levels:
+**run-level** (n = 70 train14 / 40 test_v3; paired t + Wilcoxon signed-rank + Cohen's
+dz) and the conservative **traj-level** (seeds averaged first; n = 14 / 8).
+
+**Q1 — the controller gap (PID-CT − ASMC, negative = PID-CT better):**
+
+```
+                          n    meanD      p_t        p_W        dz
+train14 0.9, ct           70   −0.02296   4.0e-10    1.1e-12    −0.87
+train14 1.0, ct           70   −0.01894   1.5e-07    5.7e-11    −0.70
+test_v3 0.9, ct           40   −0.02590   3.0e-06    1.8e-12    −0.86
+test_v3 1.0, ct           40   −0.01764   9.7e-04    4.2e-06    −0.56
+(nt rows: same story, dz −0.56 … −0.68, all p ≤ 1.1e-4)
+```
+
+**PID-CT < ASMC is statistically significant at both margins, both tiers, both tuning
+regimes** — it survives any multiplicity correction by orders of magnitude. Medians are
+~half the means: the gap is skewed, driven hardest by the stress trajectories, but the
+sign never flips.
+
+**Q2 — the margin effect (s100 − 0.9 within each config):**
+
+```
+                 run-level p_t / p_W          traj-level p_t / p_W    s100-better
+PID-CT ct  t14   0.44 / 0.30                  0.70 / 0.33              4/14
+PID-CT ct  test  0.059 / 0.18                 0.36 / 0.20              2/8
+PID-CT nt  t14   0.17 / 0.42                  0.44 / 0.67              4/14
+PID-CT nt  test  0.29 / 0.075                 0.60 / 0.25              2/8
+ASMC   ct  t14   1.9e-04 / 3.0e-09            0.015 / 0.011           13/14
+ASMC   ct  test  2.2e-11 / 1.4e-08            <1e-4 / 0.008            8/8
+ASMC   nt  t14   0.47 / 0.008                 0.65 / 0.46              7/14
+ASMC   nt  test  0.96 / 0.058                 0.98 / 0.20              7/8
+```
+
+Of the eight margin tests, **only ASMC clean-tuned is significant** — at BOTH
+aggregation levels and BOTH tiers (worst p = 0.015; 21 of 22 trajectories better;
+test_v3 dz = −1.46), and it survives Holm correction across the family. The PID-CT ct
+test_v3 degradation (p_t = 0.059) does not clear the bar: a trend, not a finding.
+Everything else is noise.
+
+**Caveats.** (i) Inference generalises over the sensor-noise distribution and this
+fixed trajectory set — trajectories are design points, not random draws, so
+"significant" means robust to noise realisation and consistent across these motions.
+(ii) Statistical ≠ practical: even the significant ASMC ct effect is ~1% of total
+score (~1.4% of the tracking component alone). (iii) The ~1% clean-tuning-objective
+gain from removing the margin (§1) is NOT confirmed downstream except for ASMC ct —
+it washes out under sensor noise everywhere else.
+
+**Bottom line:** the PID-CT-vs-ASMC ordering is a statistically significant property of
+the platform, not of the tuning margin; the margin ablation has exactly one significant
+effect (ASMC clean-tuned, small and favourable) and none anywhere else.
