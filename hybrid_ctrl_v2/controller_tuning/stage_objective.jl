@@ -369,7 +369,8 @@ function make_stage_objective(ctrl::Symbol, space, trajs, oracle_kind::Symbol;
                               expand::Function=identity,
                               lambda_chatter::Float64=0.0, lambda_kmax::Float64=0.0,
                               lambda_gamma::Float64=0.0, recovery_weight::Float64=0.0,
-                              noise_replicates::Int=1, metric::Symbol=:v2)
+                              noise_replicates::Int=1, metric::Symbol=:v2,
+                              lim=nothing)
     _assert_terms_reachable(ctrl, space, freeze, expand, trajs;
                             lambda_chatter=lambda_chatter, lambda_kmax=lambda_kmax,
                             lambda_gamma=lambda_gamma, recovery_weight=recovery_weight)
@@ -395,6 +396,12 @@ function make_stage_objective(ctrl::Symbol, space, trajs, oracle_kind::Symbol;
         kw_raw = Main.decode(theta, space)
         kw_raw = ctrl == :pid ? Main.PIDCascadeMod.regroup_joint(kw_raw) : kw_raw
         kw = expand(merge(freeze, kw_raw))
+        # `lim` (e.g. a non-default safety_margin PhysicalLimits) is routed
+        # OUTSIDE `freeze` on purpose: freeze is serialized into
+        # best_config.json/checkpoint.json and a PhysicalLimits struct is not
+        # JSON-able. It is merged LAST so neither the decode nor a freeze entry
+        # can override it.
+        kw = lim === nothing ? kw : merge(kw, (lim=lim,))
 
         is_pid_v2 = ctrl == :pid && (haskey(kw, :lam_inner) || haskey(kw, :lam_inner_x))
         # ASMC_SPACE_V2's decode always carries lam_x_max -- v1's ASMC_SPACE has no

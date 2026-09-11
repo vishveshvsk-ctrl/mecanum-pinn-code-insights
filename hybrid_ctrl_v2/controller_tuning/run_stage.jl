@@ -64,6 +64,12 @@ function parse_args(argv)
         # time-normalised integral term, a per-trajectory position scaler and a
         # trigonometric heading error). See StageObjectiveMod.
         "metric" => "v2",
+        # (E56) factor of safety on the available friction circle, consumed by
+        # ASMC's kmax_schedule ceiling and PID's vcmd_limits gate. 0.9 is the
+        # campaign default; anything else routes a fresh PhysicalLimits through
+        # make_stage_objective's `lim` kwarg and suffixes the output root with
+        # _s<margin*100> so the archived 0.9 runs can never be overwritten.
+        "safety-margin" => 0.9,
     )
     i = 1
     while i <= length(argv)
@@ -101,6 +107,7 @@ function parse_args(argv)
         elseif arg == "--rho-lo"; a["rho-lo"] = parse(Float64, argv[i+1]); i += 2
         elseif arg == "--rho-hi"; a["rho-hi"] = parse(Float64, argv[i+1]); i += 2
         elseif arg == "--warm-from"; a["warm-from"] = argv[i+1]; i += 2
+        elseif arg == "--safety-margin"; a["safety-margin"] = parse(Float64, argv[i+1]); i += 2
         elseif arg == "--np-grid"; a["np-grid"] = argv[i+1]; i += 2
         else; error("run_stage.jl: unknown arg $arg"); end
     end
@@ -264,9 +271,14 @@ function run_asmc_v2(trajs_screen, trajs_full, a, outdir::String; warm_start=not
     freeze = (eps_floor_xy=a["eps-floor-xy"], eps_floor_psi=a["eps-floor-psi"],
               use_demand_k=true, kmax_contact_b=true, enforce_k_floor=true,
               kmax_sched_floor=kfloor)
+    # Non-default safety margin: fresh PhysicalLimits routed via the `lim` kwarg
+    # (NOT freeze -- freeze is JSON-serialized; a struct is not). 0.9 = default
+    # path, byte-identical to the archived campaign.
+    lim = a["safety-margin"] == 0.9 ? nothing :
+          Main.physical_limits_with_margin(a["safety-margin"])
     mkobj(trajs) = make_stage_objective(:asmc, space, trajs, oracle; seed=a["seed"], freeze=freeze,
         lambda_chatter=a["lambda-chatter"], lambda_kmax=a["lambda-kmax"], lambda_gamma=a["lambda-gamma"],
-        noise_replicates=a["noise-replicates"], metric=Symbol(a["metric"]))
+        noise_replicates=a["noise-replicates"], metric=Symbol(a["metric"]), lim=lim)
     checkpoint_cb = _make_checkpoint_cb(joinpath(outdir, "checkpoint.json"), space, freeze)
     best, best_score, trials, diag = optimize_staged(mkobj(trajs_screen), mkobj(trajs_full), lo, hi;
         method=:dxnes, refiner=Symbol(a["refiner"]), seed=a["seed"], start_offset=a["seed"],
@@ -339,10 +351,14 @@ function run_pid_v2(trajs_screen, trajs_full, a, outdir::String; feedforward::Bo
     # make_stage_objective defaulted it to 0.0 and every PID run to date was
     # UNPRICED regardless of the flag. Same omission existed on run_pid (v1) and
     # run_mpc; both fixed alongside. Only the two ASMC paths ever honoured it.
+    # Non-default safety margin: same `lim` routing as run_asmc_v2 (outside
+    # `freeze`, which is JSON-serialized).
+    lim = a["safety-margin"] == 0.9 ? nothing :
+          Main.physical_limits_with_margin(a["safety-margin"])
     mkobj(trajs) = make_stage_objective(:pid, space, trajs, oracle; seed=a["seed"], freeze=freeze,
         lambda_chatter=a["lambda-chatter"],
         recovery_weight=a["recovery-weight"], noise_replicates=a["noise-replicates"],
-        metric=Symbol(a["metric"]))
+        metric=Symbol(a["metric"]), lim=lim)
     checkpoint_cb = _make_checkpoint_cb(joinpath(outdir, "checkpoint.json"), space, freeze)
     best, best_score, trials, diag = optimize_staged(mkobj(trajs_screen), mkobj(trajs_full), lo, hi;
         method=:dxnes, refiner=Symbol(a["refiner"]), seed=a["seed"], start_offset=a["seed"],
@@ -490,7 +506,13 @@ function main()
 
     ctrl_label = (ctrl == :pid && a["pid-v2"]) ? "pid_v2_$(a["pid-variant"])" :
                  (ctrl == :asmc && a["asmc-v2"]) ? "asmc_v2" : string(ctrl)
-    outdir = joinpath(a["out"], "seed$(a["seed"])", "$(ctrl_label)_$(a["noise"])")
+    # Non-default safety margin gets its own output root -- the archived 0.9
+    # campaign runs are immutable outputs and must never be overwritten.
+    out_root = a["out"]
+    if a["safety-margin"] != 0.9
+        out_root = out_root * "_s" * string(round(Int, a["safety-margin"] * 100))
+    end
+    outdir = joinpath(out_root, "seed$(a["seed"])", "$(ctrl_label)_$(a["noise"])")
     if isdir(outdir) && !isempty(readdir(outdir)) && !a["force"]
         error("run_stage.jl: $outdir already exists and is non-empty. Pass --force to overwrite " *
               "(this does NOT resume -- both phases re-run from scratch; see module docstring).")
@@ -498,7 +520,8 @@ function main()
     mkpath(outdir)
 
     println("\n===== Stage $(a["stage"]) / $ctrl_label / seed $(a["seed"]) — screen=$(length(trajs_screen)) trajs, " *
-            "full=$(length(trajs_full)) trajs, noise=$(a["noise"]), metric=$(a["metric"]), lambda_chatter=$(a["lambda-chatter"]) =====")
+            "full=$(length(trajs_full)) trajs, noise=$(a["noise"]), metric=$(a["metric"]), lambda_chatter=$(a["lambda-chatter"]), " *
+            "safety_margin=$(a["safety-margin"]) =====")
 
 
     # metric + chatter price are echoed above because getting them wrong is
@@ -556,6 +579,7 @@ function main()
         JSON.print(io, Dict(
             "controller" => ctrl_label, "noise" => a["noise"], "stage" => a["stage"], "seed" => a["seed"],
             "best_score" => best_score, "best_gains" => gains,
+            "safety_margin" => a["safety-margin"],
             "converged" => diag.converged, "stop_reason" => string(diag.stop_reason),
             "phase1_evals" => diag.phase1_evals, "phase2_evals" => diag.phase2_evals,
             "trajset_screen" => a["trajset-screen"], "trajset_full" => a["trajset-full"],

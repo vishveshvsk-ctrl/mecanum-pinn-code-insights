@@ -255,6 +255,25 @@ function default_physical_limits()
 end
 
 """
+    physical_limits_with_margin(safety_margin) -> PhysicalLimits
+
+The `default_physical_limits()` construction with a caller-chosen
+`safety_margin` (the (E56) factor of safety on the AVAILABLE friction circle,
+consumed by `kmax_schedule` for the ASMC gain ceiling and by `vcmd_limits` for
+the PID command gate). Margin 0.9 returns the cached default instance so the
+default path stays byte-identical; any other value builds a FRESH instance
+(the cache must never alias a non-default margin). Added for the supervisor's
+margin-removal comparison (s = 1.0 vs the archived 0.9 campaign) -- see
+chat-handoff and docs/Campaign_v3_Controller_Estimator_Explainer.tex.
+"""
+function physical_limits_with_margin(safety_margin::Float64)
+    safety_margin == 0.9 && return default_physical_limits()
+    base = Profiles.load_base("trajectory_files_run_0p5_main")
+    params0 = PlatformParams(base; mu_friction=0.5)
+    return ControllerV2Mod.PhysicalLimits(params0; mu=0.5, safety_margin=safety_margin)
+end
+
+"""
     build_controller_v2(ctrl, kw) -> (asmc_o, mpc_o, pid_o)
 
 :asmc builds `ControllerV2Mod.ASMCControllerV2` (this brief's physically-

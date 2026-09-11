@@ -286,4 +286,445 @@ feasibility theory & \texttt{docs/Mecanum\_Analytical\_Limits\_AxisVel\_AccelEnv
       mixed-initial-heading tiers.
 \end{itemize}
 
+\appendix
+\sloppy
+\section{Plant model and constants}
+\label{app:plant}
+
+All campaign runs share the case-1 parameter set
+(\texttt{PlatformParams}/\texttt{LuGreParams} + \texttt{MotorParams},
+\texttt{hybrid\_ctrl/plant.jl}); estimator tuning and all evaluations at
+$\mu=0.5$, $\chi=0.005$ (dataset grid $\{0,\ldots,0.008\}$; 12 rollers per wheel). Derivations from these numbers (velocity caps, envelope,
+two-gate feasibility) live in
+\path{docs/Mecanum_Analytical_Limits_AxisVel_AccelEnvelope_BackEMF.tex}.
+
+\subsection{Constants}
+
+\begin{table}[h]\centering\footnotesize
+\caption{Platform, geometry and contact (O-configuration:
+$\delta=(-45^\circ,+45^\circ,+45^\circ,-45^\circ)$; wheel centres
+$p_x=(h,h,-h,-h)$, $p_y=(l,-l,l,-l)$).}
+\label{tab:platform}
+\begin{tabular}{llll@{\hskip 2em}llll}
+\toprule
+Sym & Value & Meaning & & Sym & Value & Meaning\\
+\midrule
+$h$ & 0.235 m & half-length & & $m$ & 30 kg & body mass\\
+$l$ & 0.15 m & half-width & & $m_s$ & 35.6 kg & total mass\\
+$R$ & 0.05 m & wheel radius & & $N_{tot}$ & 349.2 N & total normal\\
+$R_a$ & 0.0355 m & roller axle dist. & & $J_w$ & $5.87\!\times\!10^{-3}$ kg\,m$^2$ & wheel inertia\\
+$R-R_a$ & 0.0145 m & --- & & $J_{roller}$ & $10^{-6}$ kg\,m$^2$ & roller inertia\\
+$\mu$ & 0.5 & Coulomb coeff. & & $a_X$ & 0.016 m & COM offset (long.)\\
+$s=\mu_s/\mu_c$ & 1.1 & stiction ratio & & $a_Y$ & $-0.026$ m & COM offset (lat.)\\
+$v_s$ & 0.01 m/s & Stribeck vel. & & $p_1$ & 0.11 & wheel viscous\\
+$\chi$ & 0.005 & contact-spot & & $p_2$ & $5.78\!\times\!10^{-3}$ & roller viscous\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]\centering\footnotesize
+\caption{DC-motor actuator (\texttt{MotorParams}) and derived landmarks.}
+\label{tab:motorapp}
+\begin{tabular}{llll@{\hskip 2em}llll}
+\toprule
+Sym & Value & Meaning & & Sym & Value & Meaning\\
+\midrule
+$K_t=K_b$ & 0.0335 & torque / back-EMF const. & & $V_{max}$ & 24 V & bus voltage\\
+$G$ & $9405/364\approx25.84$ & gear ratio & & $dV_{max}$ & 200 V/s & mixer slew clamp\\
+$R_a^{(m)}$ & 2.0 $\Omega$ & winding resistance & & $i_{max}$ & 12.8 A & current limit (slack)\\
+$\eta$ & 0.9 & gear efficiency & & $\tau_f$ & 0.01 N\,m & shaft friction\\
+$\tau_{stall}$ & 9.12 N\,m & derived, \eqref{eq:tauavail-app} & & $\omega_{nl}$ & 27.73 rad/s & no-load (hard wall)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Plant equations (what the simulator integrates)}
+\label{app:plant-eqs}
+
+Per-contact slip velocities (representative roller phase $\tilde\varphi_i\to0$;
+roller-spin rate $\dot\gamma_i$, wheel rate $\omega_i$):
+\begin{align}
+V_{px,i}&=V_x-\dot\psi\,p_{y,i}-\omega_i R+\dot\gamma_i\sin\delta_i(R_a-R),\\
+V_{py,i}&=V_y+\dot\psi\,p_{x,i}+\dot\gamma_i\cos\delta_i(R-R_a),
+\qquad \omega_{z,i}=\dot\psi .
+\end{align}
+
+Steady LuGre/Stribeck contact force (bounded, aligned with slip):
+\begin{equation}
+\vec F_i=-N_i\,g_t(\|V_p\|)\,\frac{\vec V_{p,i}}{\|V_p\|},\qquad
+g_t=\mu_c\Big[1+(s-1)e^{-(\|V_p\|/v_s)^2}\Big],
+\end{equation}
+with per-contact bristle states integrated in the full plant (30 states:
+3 body velocities, $\psi$, 4 wheel angles, 4 wheel rates, 4 roller rates,
+2 world positions, 12 bristle states).
+
+Wheel (actuated) and roller (passive) dynamics:
+\begin{align}
+J_w\,\dot\omega_i &= M_i - p_1\omega_i - F_{x,i}R,\\
+J_r\,\ddot\gamma_i &= -p_2\dot\gamma_i
+ - F_{x,i}\sin\delta_i\,(R-R_a\cos\tilde\varphi_i)
+ - F_{y,i}\cos\delta_i\,(R_a-R\cos\tilde\varphi_i)
+ - M_{z,i}\sin\tilde\varphi_i\cos\delta_i .
+\end{align}
+
+Platform rows (COM offset retained; $M^{-1}$ applied to the RHS):
+\begin{align}
+\tilde m\,\dot V_x - ma_Y\ddot\psi &= \textstyle\sum_i F_{x,i} + m_s\dot\psi V_y + m a_X\dot\psi^2,\\
+\tilde m\,\dot V_y + ma_X\ddot\psi &= \textstyle\sum_i F_{y,i} - m_s\dot\psi V_x + m a_Y\dot\psi^2,\\
+-ma_Y\dot V_x + ma_X\dot V_y + I_s\ddot\psi &= \textstyle\sum_i\big(p_{x,i}F_{y,i}-(p_{y,i})F_{x,i}+M_{z,i}\big)
+ - m\dot\psi(a_XV_x+a_YV_y).
+\end{align}
+
+Actuator (quasi-static DC motor, evaluated every RHS call):
+\begin{equation}
+i=\frac{V_{cmd}-K_bG\,\omega_i}{R_a^{(m)}},\qquad
+M_i=G\eta\,(K_t i-\tau_f\,\mathrm{sign}\,\omega_i),
+\qquad |V_{cmd}|\le V_{max},\ \ |\dot V_{cmd}|\le dV_{max}.
+\label{eq:motormap-app}
+\end{equation}
+The torque--speed line and its landmarks:
+\begin{equation}
+\tau_{avail}(\omega)=\underbrace{G\eta\Big(\frac{K_tV_{max}}{R_a^{(m)}}-\tau_f\Big)}_{9.12\ \mathrm{N\,m}}
+-\underbrace{\frac{G^2\eta K_tK_b}{R_a^{(m)}}}_{0.337\ \mathrm{N\,m\,s/rad}}|\omega|,
+\qquad \omega_{nl}=\frac{V_{max}}{K_bG}=27.73\ \mathrm{rad/s}.
+\label{eq:tauavail-app}
+\end{equation}
+
+No-slip wheel-speed map (used by feasibility screening and the estimator's wheel
+Jacobian):
+\begin{equation}
+\omega_i=\frac{1}{R}\Big[V_x+\tan\delta_i\,V_y+\big(\rho_{Xi}\tan\delta_i-\rho_{Yi}\big)\dot\psi\Big]
+=\frac{V_x\pm V_y\pm(l+h)\dot\psi}{R}.
+\label{eq:wheelmap-app}
+\end{equation}
+
+Equivalent (augmented) 3-DOF model the controllers are designed on:
+\begin{equation}
+M_{aug}\dot{\vec v}+C(\dot\psi)\vec v+D_{eq}\vec v+\vec f_c(\vec v)=\vec F_p,\qquad
+\vec v=(V_x,V_y,\dot\psi),
+\end{equation}
+\begin{equation}
+M_{aug}=\begin{bmatrix}\tilde m&0&-ma_Y\\0&\tilde m&ma_X\\-ma_Y&ma_X&I_\psi\end{bmatrix},\quad
+\tilde m=m_s+\frac{4J_w}{R^2},\quad I_\psi=I_s+\frac{4(l+h)^2}{R^2}J_w,
+\end{equation}
+\begin{equation}
+D_{eq}=\mathrm{diag}\Big(\tfrac{4p_1}{R^2},\
+\tfrac{4p_1}{R^2}+\tfrac{8p_2}{(R-R_a)^2},\
+\tfrac{4p_1(l+h)^2}{R^2}+\tfrac{8p_2h^2}{(R-R_a)^2}\Big)\approx\mathrm{diag}(176,396,38).
+\end{equation}
+
+\section{The frozen estimator (ESKF v3) --- complete equations}
+\label{app:eskf}
+
+\textbf{State} (error-state KF, \texttt{ESKFEstimatorV3},
+\texttt{hybrid\_ctrl\_v2/estimators\_v3.jl}; heading carried as $(c,s)=(\cos\psi,\sin\psi)$,
+re-normalised each tick):
+\begin{equation}
+x = [\,V_x,\ V_y,\ \dot\psi,\ c,\ s,\ X,\ Y,\ b_x,\ b_y,\ s_x,\ s_y,\ b_g,\ \alpha\,]^\top \in \mathbb{R}^{13},
+\end{equation}
+with accelerometer biases $(b_x,b_y)$, slip states $(s_x,s_y)$, gyro bias $b_g$, and the
+13th state $\alpha$ = yaw acceleration (the v3 addition: a second integrator on the yaw
+channel; a type-2 tracker follows a constant-acceleration ramp with zero steady-state
+lag, which the type-1 v2 design structurally could not).
+
+\subsection{Prediction (1 kHz, IMU acceleration as input)}
+\begin{align}
+V_x^+ &= V_x + dt\,(a_x + \dot\psi V_y - b_x), &
+V_y^+ &= V_y + dt\,(a_y - \dot\psi V_x - b_y),\\
+\dot\psi^+ &= \dot\psi + dt\,\alpha, &
+\alpha^+ &= \alpha + w_\alpha,\\
+c^+ &= c - dt\,\dot\psi\,s, &
+s^+ &= s + dt\,\dot\psi\,c,\\
+X^+ &= X + dt\,(V_x c - V_y s), &
+Y^+ &= Y + dt\,(V_x s + V_y c),\\
+s_x^+ &= (1-dt/\tau_{slip})\,s_x, &
+s_y^+ &= (1-dt/\tau_{slip})\,s_y,
+\end{align}
+biases $(b_x,b_y,b_g)$ constant in prediction; $\tau_{slip}=0.06$ s,
+$\sigma_{slip}=0.014$ m/s (measured from traces). Slip states are
+\emph{mean-reverting} (Ornstein--Uhlenbeck) in both the state and the error Jacobian ---
+v1's pure random walk has no stationary variance.
+
+\subsection{Error dynamics and process noise}
+$P^+ = FPF^\top + Q$, $F = I + dt\,A$, $A$'s nonzero entries read off the prediction
+above, including the yaw double-integrator coupling $A_{3,13}=1$ and the slip decay
+$A_{10,10}=A_{11,11}=-1/\tau_{slip}$. Process noise, all entries derived (none searched):
+\begin{align}
+Q_{11}=Q_{22} &= (dt\,\sigma_{acc})^2\,q_{scale}, &
+q_{scale} &= 1+\alpha_{acc}\|a\|+\alpha_{yaw}|\dot\psi|,\\
+Q_{33} &= (dt\,\sigma_{gyro})^2 q_{scale}, &
+Q_{44}=Q_{55} &= \texttt{pose\_Qn\_heading},\\
+Q_{66}=Q_{77} &= \texttt{pose\_Qn\_pos}, &
+Q_{88}=Q_{99} &= 10^{-10}\ \text{(margin)},\\
+Q_{12,12} &= \sigma_{rw}^2\,dt\ \text{(gyro random walk)}, &
+Q_{13,13} &= q_\alpha\ \text{(tuned)} .
+\end{align}
+\begin{equation}
+Q_{10,10}=Q_{11,11} = \frac{2\sigma_{slip}^2}{\tau_{slip}}\,dt\ \times
+\begin{cases}g_{grip}&\text{gripping}\\1&\text{slipping}\end{cases}
+\qquad (g_{grip}=\texttt{grip\_slip\_scale}).
+\end{equation}
+
+\subsection{Wheel + gyro update (1 kHz)}
+Encoder wheel speeds $\tilde\omega$ are least-squared through the O-config Jacobian
+\eqref{eq:wheelmap-app} --- $H_\omega^\top H_\omega=\mathrm{diag}(4/R^2,\,4/R^2,\,4(l{+}h)^2/R^2)$,
+so the body-velocity pseudo-measurement covariance is closed-form, exactly diagonal and
+isotropic --- plus the gyro:
+\begin{equation}
+z=\begin{bmatrix}(H_\omega^{+}\tilde\omega)_{x}\\ (H_\omega^{+}\tilde\omega)_{y}\\ \tilde g_z\end{bmatrix},
+\qquad
+H=\begin{bmatrix}1&0&0&\cdots&s_x\leftarrow\!x_{10}&\cdots\\ 0&1&0&\cdots&s_y\leftarrow\!x_{11}&\cdots\\
+0&0&1&\cdots&b_g\leftarrow\!x_{12}&\cdots\end{bmatrix}_{3\times13},
+\end{equation}
+\begin{equation}
+R=\mathrm{diag}(R_w,\,R_w,\,R_g),\qquad
+R_w=\frac{\big(\sigma_\omega^2+(\mathit{sf}_\omega\,\bar\omega)^2\big)R^2}{4},\qquad
+R_g=\sigma_{gyro}^2+(\mathit{sf}_{gyro}\,\dot\psi)^2 .
+\end{equation}
+While slipping ($R$ inflated $\times$\texttt{slip\_R\_inflate}; accel-bias gains zeroed),
+and with an NIS gate at $\chi^2_{3,0.99}=11.34$ that on violation boosts the wheel rows
+$\times$\texttt{r\_boost} and retries once. Slip detection is pinned, not tuned:
+$\mathrm{slip} = \|(H_\omega^{+}\tilde\omega,\ \tilde g_z)-(V_x,V_y,\dot\psi)_{pred}\|$,
+threshold $=3\sqrt{R_w}$. Joseph-form covariance update with symmetrisation throughout.
+
+\subsection{Flow update (100 Hz) and pose fix (100 Hz)}
+Flow (skipped entirely on dropout or loss-of-lock --- \emph{never} a zero substitution):
+\begin{equation}
+H_{flow}=\begin{bmatrix}1&0&-r_y&0&\cdots&0\\ 0&1&r_x&0&\cdots&0\end{bmatrix}_{2\times13},
+\qquad
+R_{flow}=\big(\sigma_{flow0}+\sigma_{flow}\,|v|\big)^2+\frac{\texttt{quantum}^2}{12},
+\end{equation}
+lever arm $r=(0,0)$ in this campaign; the \emph{slip columns are zero} --- wheels measure
+$V_x+s_x$, flow measures $V_x$, which is what breaks the velocity$\leftrightarrow$slip
+degeneracy. NIS gate $\chi^2_{2,0.999}=13.82$; $\alpha$ informed only through covariance.
+
+Pose fix (\texttt{:docking} tier): $z_4=(x,\,y,\,\cos\psi,\,\sin\psi)$, $H$ selects
+$(X,Y,c,s)$, $R=\mathrm{diag}(\sigma_{pos}^2,\sigma_{pos}^2,\sigma_{\psi}^2,\sigma_{\psi}^2)$,
+NIS gate $\chi^2_{4,0.999}=16.27$.
+
+\textbf{Output to controllers:} $\hat x=[V_x,V_y,\dot\psi,\mathrm{atan2}(s,c),X,Y]$,
+$\hat d=[s_x,s_y,0]$. Divergence guard: innovation NIS $>10^4$ on 10 consecutive ticks
+rescales $P\times10$.
+
+\subsection{Converged configuration (adopted seed 4)}
+Tuned (\texttt{runs\_estimator\_v4\_mu0p5\_train12/seed4/best\_config.json}):
+$\alpha_{acc}=0.0229$, $\alpha_{yaw}=0.0146$,
+\texttt{grip\_slip\_scale}$=3.66\!\times\!10^{-4}$, \texttt{r\_boost}$=61.6$,
+\texttt{slip\_R\_inflate}$=42.2$, \texttt{pose\_Qn\_heading}$=10^{-8}$,
+$q_\alpha=0.0666$.
+Pinned physical priors (``$P_0$ is a statement of knowledge''):
+$P_0^{vel}=10^{-4}$, $P_0^{yaw}=10^{-3}$, $P_0^{head}=0.5$,
+$P_0^{bias\,acc}=4\!\times\!10^{-4}$, $P_0^{bias\,gyro}=9\!\times\!10^{-6}$,
+$P_0^{slip}=2\!\times\!10^{-4}$, $P_0^{pos}=0.25$, $P_0^{\alpha}=0.25$,
+\texttt{pose\_Qn\_pos}$=10^{-7}$.
+
+\section{Exact noise specification}
+\label{app:noise}
+
+Every noise figure the campaign ran under, verbatim from the implementation.
+\emph{Sources:} \path{hybrid_ctrl_v2/sensors_v2.jl} (\texttt{:realistic} suite,
+Tables~\ref{tab:imu}--\ref{tab:posefix}) and \path{hybrid_ctrl/estimators.jl}
+(\texttt{OracleEstimator}, Table~\ref{tab:oracle}); datasheet provenance per field is in
+\path{instructions/sensors-suite-consolidation-and-physical-noise.md}, Appendix A
+(reference parts: ADIS16470 IMU; PixArt PMW3901 / ADNS-3080 optical flow). Grade claim:
+\emph{industrial white-noise levels with uncalibrated consumer bias terms}. Each
+modality draws from its own RNG seeded \texttt{hash((seed,\,modality))}, so measurement
+sequences are independent of callback order.
+
+\begin{table}[h]\centering\footnotesize
+\caption{IMU, 1000 Hz (\texttt{ImuModel}; \texttt{:realistic} sets \texttt{sf\_gyro}).}
+\label{tab:imu}
+\begin{tabular}{llp{6.6cm}}
+\toprule
+Field & Value & Provenance note\\
+\midrule
+\texttt{sigma\_acc} & 0.05 m/s$^2$ & $=228\,\mu$g/$\sqrt{\mathrm{Hz}}$; typical MEMS 60--300\\
+\texttt{sigma\_gyro} & 0.003 rad/s & $=0.0077\,^\circ$/s/$\sqrt{\mathrm{Hz}}$; ADIS16470 spec 0.008\\
+\texttt{acc\_bias} & 0.02 m/s$^2$ & $=2.04$ mg; consumer uncalibrated (ADIS16470 in-run: 13 $\mu$g)\\
+\texttt{bias\_gyro} & $0.003\cdot\mathcal N(0,1)$ rad/s & turn-on bias, drawn once per run ($\sim$619$^\circ$/hr scale)\\
+\texttt{gyro\_bias\_rw} & $10^{-4}$ rad/s/$\sqrt{\mathrm{s}}$ & proper Wiener increment; $\to 92^\circ$/hr at $T{=}20$ s\\
+\texttt{sf\_gyro} & 0.005 & $\dot\psi$-proportional white scale factor (heteroscedastic $R_g$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]\centering\footnotesize
+\caption{Wheel encoders, 1000 Hz (\texttt{EncoderModel}, \texttt{:realistic}).}
+\label{tab:enc}
+\begin{tabular}{llp{5.4cm}}
+\toprule
+Field & Value & Provenance note\\
+\midrule
+\texttt{enc\_cpr} $\times$ gear & $4000 \times 25.84$ & motor-shaft counts, quantized\\
+\texttt{sigma\_omega} & $0.01/(R\sqrt{1.09})=0.192$ rad/s & quadrature-derived speed noise\\
+\texttt{sf\_omega} & 0.02 & speed-proportional scale factor\\
+\texttt{bias\_omega} & per-wheel $\mathcal N(0,\,0.2^2)$ rad/s & drawn once per run --- a \emph{bias},
+absorbed by the slip states, never folded into $R$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]\centering\footnotesize
+\caption{Optical flow, 100 Hz (\texttt{FlowModel}).}
+\label{tab:flow}
+\begin{tabular}{llp{6.2cm}}
+\toprule
+Field & Value & Provenance note\\
+\midrule
+\texttt{sigma\_flow0} & 0.005 m/s & white-noise floor (near-zero-speed regime)\\
+\texttt{sigma\_flow} & 0.02 (2\% of speed) & 17.6--25.7 mm std over 1 m trials (PMC4481980)\\
+\texttt{sf\_flow} & 0.147 & height-scale error, 14.7\%/mm, drawn \emph{once per run} --- excluded from $R$\\
+\texttt{quantum} & $31.75\,\mu$m/count & ADNS-3080 @ 800 cpi\\
+\texttt{v\_max\_track} & 1.02 m/s & loss of lock above this $\Rightarrow$ \emph{no} measurement\\
+\texttt{dropout\_prob} & 0.02 & per-sample dropout (low-texture floor)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]\centering\footnotesize
+\caption{Pose fix, \texttt{:docking} tier, 100 Hz (\texttt{PoseFixModel}).}
+\label{tab:posefix}
+\begin{tabular}{llp{4.5cm}}
+\toprule
+Field & Value & Note\\
+\midrule
+\texttt{sigma\_pos} & 0.01 m & absolute $(x,y)$ fix\\
+\texttt{sigma\_psi} & $0.5^\circ$ & heading fix\\
+\texttt{outlier\_frac} & 0.005 & gated at 0.5 m\\
+\texttt{dropout\_frac} & 0.0 & no dropouts in this tier\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]\centering\footnotesize
+\caption{Noisy-oracle injection (\texttt{OracleEstimator(:noisy)},
+\texttt{hybrid\_ctrl/estimators.jl}; scale $=1.0$). Model:
+$\mathrm{meas} = \mathrm{true} + \mathrm{bias} + (\sigma_0 + SF\cdot|\mathrm{true}|)\,\mathcal N(0,1)$,
+biases drawn once per run. This is the \emph{pessimistic no-filtering bound} of \S2 ---
+unfiltered noise written straight into the controller's state estimate, no estimator in
+the path.}
+\label{tab:oracle}
+\begin{tabular}{llll}
+\toprule
+Channel & $\sigma_0$ & $SF$ & turn-on bias std\\
+\midrule
+velocity $V_x,V_y$ & 0.010 m/s & 0.02 & 0.005 m/s\\
+yaw rate $\dot\psi$ & 0.003 rad/s & 0.005 & 0.003 rad/s\\
+heading $\psi$ & 0.010 rad & --- & 0.005 rad\\
+position $X_o,Y_o$ & 0.020 m & --- & 0.010 m\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{The tuning pipelines, with algebra}
+\label{app:tuning}
+
+\subsection{Common optimizer protocol (all tunings)}
+Two-phase staged search (\texttt{controller\_tuning/optimizer\_stage.jl}):
+\begin{enumerate}[nosep]
+\item \textbf{Global: dxNES} (BlackBoxOptim) on a cheap screen objective, per-seed
+      Sobol-offset start, run in chunks with a \emph{plateau gate} (relative improvement
+      below \texttt{rel\_tol} over a trailing window) and a hard eval cap
+      (\texttt{--p1-cap} 250). Convergence is detected, never assumed --- the v1 tuner was
+      caught terminating mid-descent.
+\item \textbf{Local: BOBYQA} (NLopt \texttt{LN\_BOBYQA}) on the full objective inside a
+      box centred on the phase-1 optimum (\texttt{--p2-cap} 60), with an explicit
+      score-plateau check --- BOBYQA's own \texttt{xtol/ftol} criterion was measured to
+      \emph{not} fire even when the score had plateaued.
+\end{enumerate}
+Controllers: 5 seeds clean (cold start), 4 seeds noisy (warm-start from the same run's
+clean optimum). Estimator: 5 seeds, replay. One OS process per seed; BLAS single-threaded;
+\texttt{stop\_reason} recorded per run.
+
+\subsection{Controller objective (\texttt{stage\_objective.jl})}
+\begin{equation}
+\text{score} = \text{tracking}_{v3} + 0.05\,\frac{ce}{24} + 0.36\,\frac{chatter}{0.8},
+\end{equation}
+with the six-term tracking (errors in physical units, tolerances normalising each term;
+$he=2|\sin(\Delta\psi/2)|$, $pe=\sqrt{\Delta x^2+\Delta y^2}$):
+\begin{equation}
+\text{tracking}_{v3}=\frac{1}{6\,k_{traj}}\Big(
+\frac{pe_T}{0.01}+\frac{\max_t pe}{0.1}+\frac{\overline{pe}}{0.0249}
++\frac{he_T}{0.01}+\frac{\max_t he}{0.1}+\frac{\overline{he}}{0.0128}\Big),
+\end{equation}
+\begin{equation}
+k_{traj}=\frac{\max\big(\max_t\|p_{ref}(t)-\bar p_{ref}\|,\ 0.1\big)}{0.1}\ \ge 1
+\qquad\text{(path extent, rotation-invariant)},
+\end{equation}
+terminal / peak / typical per channel, $\overline{(\cdot)}$ the time-normalised mean
+absolute. The 0.0249 / 0.0128 tolerances are \emph{measured} (achieved iae/max ratios
+0.249 / 0.128 over 7 converged configs $\times$ 14 trajectories).
+$ce=\frac{1}{T}\sum_t\sum_{i=1}^4|v_{cmd,i}|$ (voltage magnitude);
+$chatter=\frac{1}{T}\sum_t\sum_i|\Delta v_{cmd,i}|$ per ms tick (slew rate), referenced
+to the mixer's own clamp $4\,dV_{max}/f_{mix}=0.8$ V/ms.
+
+\subsection{PID-FB / PID-CT --- IMC cascade, 3 tuned dims}
+Per-axis inner plant $m_{eff}\dot v + d_{eff} v = W$ with
+$m_{eff}=(R\tilde m,\,R\tilde m,\,I_\psi)\approx(2.25,2.25,5.89)$ and $d_{eff}$ the
+$R$-scaled rows of $D_{eq}$. IMC pole cancellation:
+\begin{equation}
+K_p=\frac{m_{eff}}{\lambda},\qquad K_i=\frac{d_{eff}}{\lambda},\qquad K_d=0\ (\text{a
+result, not a choice}),
+\end{equation}
+\begin{equation}
+\frac{K_i}{K_p}=\frac{1}{\tau_{open}}\ \text{identically,}\qquad
+\tau_{open}=\frac{m_{eff}}{d_{eff}}\approx(0.256,0.114,0.155)\ \mathrm{s}.
+\end{equation}
+Outer loop on the integrator plant $\dot p = v$: $K_{p,pos}=1/(N\lambda)$, $N=4$, giving
+$\omega_n=1/(\lambda\sqrt N)$, $\zeta=\sqrt N/2=1$ (critically damped). Anti-windup is
+\emph{derived}: $I_{max}=\texttt{wrench\_budget}/K_i$ with the budget the measured p95
+integral demand, so $K_iI_{max}$ is invariant of $\lambda$. PID-CT adds the
+computed-torque feedforward
+\begin{equation}
+W_{ff}=m_{eff}\,a_{cmd}+d_{eff}\,V_{cmd}+C(\dot\psi)\hat V ,
+\end{equation}
+structurally matched to ASMC's equivalent control. Tuned space
+(\texttt{PID\_SPACE\_V2}, log): $\lambda_x\in[0.003,0.256]$,
+$\lambda_y\in[0.003,0.114]$, $\lambda_\psi\in[0.003,0.155]$ --- upper bounds
+\emph{are} $\tau_{open}$ (beyond which the loop is slower than open loop); the lower
+bound is a numerical guard at $3\,dt$, the real floor being priced endogenously by the
+chatter term ($K_p=m_{eff}/\lambda$ amplifies command noise as $\lambda\to0$).
+
+\subsection{ASMC v2 --- adaptive supertwist, 4 tuned dims}
+Surface per axis with a saturation-aware slope, $\lambda(e)=\min(\lambda_{max},\
+v_{max}/|e|)$; smooth switching wrench $W = W_{eq} + K\,\tanh(s/\varepsilon)$ with the
+boundary layer \emph{derived} from estimator noise,
+$\varepsilon_i=\max(0.5\,\text{tol}_i,\ k\,\sigma_{s,i})$.
+Gain adaptation (per axis) with the friction-circle ceiling recomputed per tick and the
+demand-driven decay:
+\begin{equation}
+\dot K_i=\gamma_i\Big[s_i\tanh(s_i/\varepsilon_i)\,(1-z_i)-\rho_{auth}\,\varepsilon_i\,z_i\Big],
+\qquad
+z_i=\frac{K_i-K_{floor}}{K_{max,sched,i}-K_{floor}},
+\end{equation}
+so $K$ grows under sliding-mode activity, parks below the scheduled ceiling $K_{max,sched}$
+(the wheel-3 friction budget, \texttt{kmax\_schedule}), and decays toward the floor at a
+rate set by the demand scale $\rho_{auth}\varepsilon$; $\gamma$ is a pure time-scaling
+(fixed at the derived per-axis values $170/380/280$ after a $64\times$ sweep showed it
+score-inert). Tuned space (\texttt{ASMC\_SPACE\_V2}, log):
+$\lambda_{x,max},\lambda_{y,max}\in[0.3,10]$, $\lambda_{\psi,max}\in[1,20]$,
+$\rho_{auth}\in[0.762,27]$ (both ends physically anchored: $\tanh(1)$ and the
+$\sigma$-leak excitation scale).
+
+\subsection{Estimator tuning --- replay objective, 7 tuned dims}
+The estimator is tuned \emph{open loop} (replay against ground truth on logged
+trajectories; no controller in the loop), same tolerance-normalised shape:
+\begin{equation}
+\text{score}_{est}=\frac{vel_{rmse}}{10^{-3}}+\frac{rate_{rmse}}{10^{-2}}
++1.0\cdot\frac{inslip\_vel_{rmse}}{10^{-3}}
++\frac{pos_{rmse}}{10^{-2}}+\frac{head_{rmse}}{10^{-2}}
++0.05\cdot\text{smoothness},
+\end{equation}
+velocity units m/s, rates rad/s, positions m, headings rad;
+$\text{smoothness}=\mathrm{mean}\big((d|\hat v|/dt)^2\big)$. The in-slip velocity error is
+priced \emph{twice} (once in $vel_{rmse}$, once gated) --- the estimator's model mismatch
+on this platform \emph{is} slip. Search space (\texttt{param\_space\_v4.jl}, all
+log-scaled): $\alpha_{acc},\alpha_{yaw}\in[10^{-2},10^{2}]$,
+\texttt{grip\_slip\_scale}$\in[10^{-5},1]$, \texttt{r\_boost}$\in[1,100]$,
+\texttt{pose\_Qn\_heading}$\in[10^{-8},10^{-3}]$,
+\texttt{slip\_R\_inflate}$\in[1,100]$, $q_\alpha\in[10^{-8},10^{-1}]$.
+Conditions: \texttt{train12}, $\mu=0.5/\chi=0.005$, \texttt{:realistic} suite,
+$f_{est}=1$ kHz, \texttt{fix\_tier=:docking}. All five seeds converge to the same
+estimator within 0.23\% on a common noise realisation; seed 4 adopted and frozen.
+
 \end{document}
