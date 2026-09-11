@@ -267,6 +267,8 @@ closed-loop ESKF eval & \texttt{eval\_v3\_eskf.jl}, data \texttt{runs\_eskf\_v3\
 diagnostics & \texttt{diag\_v3\_pid\_imax\_binding.jl, diag\_v3\_error\_budget.jl}\\
 provenance / verification & \texttt{metric\_v3\_\{calib,verify\}.jl, scalers\_v3.jl, lambda\_v3\_verify.jl}\\
 feasibility theory & \texttt{docs/Mecanum\_Analytical\_Limits\_AxisVel\_AccelEnvelope\_BackEMF.tex}\\
+$s{=}1.0$ ablation & \texttt{run\_stage\_\{asmc,pid\}\_v3\_s100.bat, eval\_v3\_s100.jl, RESULTS\_v3\_s100.md}\\
+significance tests & \texttt{stats\_significance\_s100.py} (+ \texttt{.bat})\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -285,6 +287,63 @@ feasibility theory & \texttt{docs/Mecanum\_Analytical\_Limits\_AxisVel\_AccelEnv
       startup transient that makes heading statistics incomparable across
       mixed-initial-heading tiers.
 \end{itemize}
+
+\section{Follow-up ablation: the friction-circle safety margin ($s\,{=}\,1.0$)}
+\label{sec:s100}
+
+Every result so far carries a $0.9$ factor of safety on the \emph{available} friction
+circle (the same circle the feasibility envelope of
+\texttt{Mecanum\_Analytical\_Limits\_AxisVel\_AccelEnvelope\_BackEMF.tex} derives;
+\S\ref{app:plant}). The supervisor's question: is that margin hiding
+performance? The factor enters exactly two controller gates --- ASMC's
+\texttt{kmax\_schedule} gain ceiling and PID-CT's \texttt{vcmd\_limits} command gate
+$\gamma$ (the $V_{ff}$ ceiling) --- so the ablation re-runs the \emph{entire} v3 chain
+for ASMC and PID-CT with \texttt{safety\_margin}~$=1.0$, single-variable, same seeds
+and optimizer budgets. PID-FB is out of scope (no feedforward). Verified gate deltas:
+$K_{max}$ free-circle ceiling $\times 1.1111$ ($=1/0.9$ exactly), loaded circle
+$\times 1.1452$ (nonlinear), $\gamma$ $0.4388\to0.4876$; the default path is
+byte-identical to the archived campaign, outputs auto-suffixed \texttt{\_s100}, and the
+margin is recorded in each config and read back at eval time, so gates can never be
+mixed across campaigns. Full tables: \texttt{hybrid\_ctrl\_v2/RESULTS\_v3\_s100.md}.
+
+\paragraph{Clean tuning: a real, consistent gain.} All ten $s{=}1.0$ seeds beat their
+family's archived best --- ASMC $0.15197$ vs $0.15318$ ($-0.8\%$), PID-CT $0.14175$ vs
+$0.14340$ ($-1.2\%$). This is the regime where the gates bind.
+
+\paragraph{But it does not survive noise.} The noisy-tuning objective is flat to
+slightly worse (paired means $+0.0039$ ASMC, $+0.0011$ PID-CT against a realisation
+std of $\approx 0.037$); oracle noisy-means move $\le 0.003$ on \texttt{train14\_v3}.
+Through the frozen ESKF, only one config moves materially: ASMC clean-tuned improves on
+both tiers ($-0.0034$ / $-0.0061$) with slightly lower chatter everywhere; the rest are
+unchanged. The ordering \textbf{PID-CT $<$ ASMC is untouched at every stage and tier},
+and the noisy-tuning findings replicate (helps ASMC $>$ PID-CT, 5/5 seeds, smaller at
+the relaxed margin).
+
+\paragraph{The tuner never rails the new ceilings.} ASMC's clean optimum moves to
+\emph{lower} surface slopes ($\lambda_x^{max}$ $5.68\to3.48$); PID-CT's
+$\lambda_{inner,x}$ doubles ($0.098\to0.256$). The margin was shaping the achievable
+gain landscape, not truncating an optimum sitting against it.
+
+\paragraph{Significance.} Paired on (trajectory $\times$ noise seed), run-level
+($n=70/40$) and traj-level (seeds averaged, $n=14/8$), paired $t$ + Wilcoxon
+(\texttt{stats\_significance\_s100.py}):
+\begin{itemize}[nosep]
+\item \textbf{Controller gap:} PID-CT $-$ ASMC is significant at both margins, both
+      tiers, both tuning regimes --- worst case $p=9.7\!\times\!10^{-4}$, Cohen's
+      $d_z$ $0.56$--$0.87$. The ordering is a property of the platform, not of the
+      margin.
+\item \textbf{Margin effect:} of eight tests, only \textbf{ASMC clean-tuned} is
+      significant --- worst $p=0.015$, 21/22 trajectories better, \texttt{test\_v3}
+      $d_z=-1.46$, Holm-surviving. PID-CT ct's \texttt{test\_v3} move ($p_t=0.059$) is
+      a trend, not a finding.
+\end{itemize}
+Scope: inference covers the sensor-noise distribution and this fixed trajectory set
+(design points, not random draws); and even the significant effect is $\sim$1\% of
+score --- real, consistent, small.
+
+\paragraph{Verdict.} The $0.9$ factor of safety costs $\sim$1\% of clean-regime
+tracking-objective headroom and buys nothing statistically robust under noise beyond
+one small ASMC-ct improvement. Keeping it or not is now a quantified design call.
 
 \appendix
 \sloppy
