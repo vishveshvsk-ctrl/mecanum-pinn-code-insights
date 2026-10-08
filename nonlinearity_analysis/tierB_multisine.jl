@@ -45,7 +45,13 @@ using JLD2
 LinearAlgebra.BLAS.set_num_threads(1)
 
 const SMOKE = "--smoke" in ARGS
+# --docking: probe the low-speed band the docking profile lives in — bias at
+# 5% of cap (~3 cm/s cruise, inside/near the preslip band) with small
+# excitation, so the velocity oscillates through zero like the docking
+# approach tail and hold corrections do.
+const DOCKING = "--docking" in ARGS
 const OUTDIR = joinpath(ROOT, "nonlinearity_analysis", "results")
+const TSFX = DOCKING ? "_dock" : ""
 mkpath(OUTDIR)
 
 # --- plant point (same as Tier A: campaign physics) --------------------------
@@ -218,7 +224,8 @@ end
 # --- driver -------------------------------------------------------------------
 # (bias_frac, exc_frac) per run; a zero-bias reference at exc 0.25 per axis.
 const JOBSPEC = SMOKE ? [(0.25, 0.25)] :
-                      [(0.25, 0.10), (0.25, 0.25), (0.50, 0.10), (0.50, 0.25), (0.0, 0.25)]
+                DOCKING ? [(0.05, 0.05), (0.05, 0.10)] :
+                [(0.25, 0.10), (0.25, 0.25), (0.50, 0.10), (0.50, 0.25), (0.0, 0.25)]
 const AXES_B  = SMOKE ? [1] : [1, 2, 3]
 
 function main()
@@ -242,13 +249,13 @@ function main()
         t, v, a_in = run_openloop(ax, A_bias, A_exc, 1000 + ax)
         spec = analyze(t, v, a_in)
         results[j] = (axis=ax, A_bias=A_bias, A_exc=A_exc, spec=spec, runtime=time() - t0)
-        tag = "tierB_run_ax$(ax)_b$(round(A_bias; digits=2))_e$(round(A_exc; digits=2)).jld2"
+        tag = "tierB_run$(TSFX)_ax$(ax)_b$(round(A_bias; digits=2))_e$(round(A_exc; digits=2)).jld2"
         jldsave(joinpath(OUTDIR, tag); t, v, a_in, axis=ax, A_bias, A_exc)
         @printf("done ax=%d bias=%.2fV exc=%.2fV  v_mean=%s  (%.0f s)\n", ax, A_bias, A_exc,
                 string(round.(spec.v_mean ./ VCAP; sigdigits=2)), time() - t0)
     end
 
-    jldsave(joinpath(OUTDIR, "tierB_results.jld2"); results)
+    jldsave(joinpath(OUTDIR, "tierB_results$(TSFX).jld2"); results)
 
     rep = IOBuffer()
     println(rep, "# Tier B — open-loop biased odd-multisine BLA\n")
@@ -277,11 +284,11 @@ function main()
         @printf(rep, "| %d | %.2f | %.2f | %.4f | %.4f |\n", r.axis, r.A_bias, r.A_exc,
                 median(g), g05)
     end
-    open(joinpath(OUTDIR, "tierB_report.md"), "w") do io
+    open(joinpath(OUTDIR, "tierB_report$(TSFX).md"), "w") do io
         write(io, String(take!(rep)))
     end
     println(String(take!(rep)))
-    println("saved: $(joinpath(OUTDIR, "tierB_results.jld2")), tierB_report.md")
+    println("saved: $(joinpath(OUTDIR, "tierB_results$(TSFX).jld2")), tierB_report$(TSFX).md")
 end
 
 main()
