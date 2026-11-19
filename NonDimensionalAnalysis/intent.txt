@@ -1,0 +1,29 @@
+NonDimensionalAnalysis — intent
+================================
+
+Goal
+----
+Determine how nonlinear the full mecanum plant is (LuGre–Adamov contact friction
+included, not just the no-slip kinematic model) and, from that, decide for which
+kinds of motion a linear controller suffices and for which motions a nonlinear /
+robust controller is warranted.
+
+Approach
+--------
+1. Non-dimensionalize every plant equation (body force/moment balances, wheel and
+   roller torque balances, bristle rate equations, friction constitutive laws,
+   contact-slip kinematics). Each equation's scaling factor is the physical
+   quantity that equation balances (e.g. a characteristic force, torque, or rate).
+2. From this, form dimensionless constants that each carry a clear physical
+   meaning (e.g. spin-coupling strength, torque capacity vs. traction limit,
+   bristle vs. body time scales, Stribeck speed vs. operating speed).
+3. Vary these constants and measure the plant's nonlinearity across the
+   resulting operating envelope.
+4. Map the result onto classes of motion (speed, acceleration, spin, direction,
+   friction level, ...) to identify:
+     - regimes where the plant is close to linear -> linear control is adequate;
+     - regimes where nonlinearity is significant -> nonlinear / robust control is
+       warranted.
+
+Source of the plant model: run_one.jl (dynamics_full_mf_asmc!, lugre_dyn_rates)
+and trajectory_files_run_*/base.toml for parameter values.

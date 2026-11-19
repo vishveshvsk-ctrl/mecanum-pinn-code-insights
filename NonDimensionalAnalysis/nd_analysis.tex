@@ -1,0 +1,740 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+
+\title{Non-Dimensional Analysis of the LuGre--Adamov Mecanum Plant\\
+\large Running notes (updated as each equation is treated)}
+\author{Vishvesh Koranne}
+\date{\today}
+
+\newcommand{\st}[1]{{#1}^{*}}
+
+\begin{document}
+\maketitle
+
+\section*{Purpose}
+Quantify the nonlinearity of the full mecanum plant (dynamic LuGre friction with
+Adamov spin coupling, as implemented in \texttt{run\_one.jl},
+\texttt{dynamics\_full\_mf\_asmc!} and \texttt{lugre\_dyn\_rates}) by varying
+physically meaningful dimensionless constants, and from this determine which
+classes of motion warrant nonlinear/robust control and for which a linear
+controller suffices. Each equation is scaled by the physical quantity it
+balances. See \texttt{intent.txt}.
+
+\section{Notation and reference scales}
+\begin{tabular}{@{}ll@{}}
+$m$, $m_w$, $m_s = m + 4m_w$ & body mass, wheel mass, total mass \\
+$I_s$ & platform moment of inertia about the vertical axis \\
+$a_X$, $a_Y$ & centre-of-mass offset from the geometric centre \\
+$h$, $l$ & half-length, half-width (wheel-centre positions $\pm h$, $\pm l$) \\
+$\chi$ & roller contact-patch radius \\
+$\mu$ & Coulomb friction coefficient \\
+$V_0$, $\Omega_0$, $T$ & reference body speed, yaw rate, and manoeuvre time \\
+\end{tabular}
+
+\medskip
+\textbf{Reference scales.} Force $m_s g$; length $h$ (half-length); moment
+$m_s g h(1+\Lambda)$ for the yaw equation, where $h(1+\Lambda) = h + l$ is the yaw
+lever of the mecanum O-configuration. The width enters only through the aspect
+ratio $\Lambda = l/h$.
+
+\medskip
+Dimensionless states: $V_x = V_0\st{V_x}$, $V_y = V_0\st{V_y}$,
+$\dot\psi = \Omega_0\st{\dot\psi}$, $t = T\st{t}$ (so
+$\ddot\psi = (\Omega_0/T)\,\st{\ddot\psi}$, $\dot V = (V_0/T)\,\st{\dot V}$),
+contact forces $F_{x,i} = m_s g\,\st{F_{x,i}}$, spin torques
+$M_{z,i} = m_s g h(1+\Lambda)\,\st{M_{z,i}}$, wheel-centre positions
+$p_{x,i} = s_{x,i}\,h$, $p_{y,i} = s_{y,i}\,\Lambda h$ with
+$(s_{x,i}, s_{y,i}) \in \{(+,+),(+,-),(-,+),(-,-)\}$ for $i = 1..4$.
+
+\subsection*{Dimensionless constants}
+\textbf{Plant / environment} (vary with floor and payload placement):
+\begin{equation}
+\mu, \qquad
+\varepsilon_X = \frac{a_X}{h}, \qquad
+\varepsilon_Y = \frac{a_Y}{l} = \frac{a_Y}{\Lambda h}, \qquad
+\hat\chi = \frac{\chi}{h}.
+\end{equation}
+\textbf{Fixed for a given robot} (change only with payload mass/geometry):
+\begin{equation}
+r_m = \frac{m}{m_s}, \qquad
+\Lambda = \frac{l}{h}, \qquad
+\iota = \frac{I_s}{m_s h^2(1+\Lambda)^2}, \qquad
+\hat\jmath_w = \frac{J_w}{m_s R^2}, \qquad
+\hat\tau = \frac{\tau_{\max}}{m_s g R},
+\end{equation}
+DC-motor constants (voltage-input plant, \texttt{hybrid\_ctrl/plant.jl}):
+\begin{equation}
+\hat\tau_V = \frac{G\eta K_t V_{\max}}{R_a^{\mathrm{m}}\,m_s g R}, \qquad
+\hat\tau_i = \frac{G\eta K_t\, i_{\max}}{m_s g R}, \qquad
+\hat\tau_f = \frac{G\eta\,\tau_f}{m_s g R}.
+\end{equation}
+\begin{equation}
+\rho = \frac{R}{h}, \qquad
+\rho_a = \frac{R_a}{R}, \qquad
+\hat\jmath_r = \frac{n_r J_r}{m_s r_r^2},
+\qquad r_r = R - R_a = \rho(1-\rho_a)\,h.
+\end{equation}
+Friction-model constants:
+\begin{equation}
+r_s = \frac{\mu_s}{\mu_c}, \qquad
+\kappa_\sigma = \frac{\sigma_0}{\sigma_{0s}}, \qquad
+\kappa_\chi = \frac{\chi}{r_r} = \frac{\hat\chi}{\rho(1-\rho_a)}\ \text{(derived)},
+\end{equation}
+\begin{equation}
+\zeta_b = \frac{\sigma_1}{2}\sqrt{\frac{g}{\sigma_0}}, \qquad
+\zeta_{bs} = \frac{\sigma_{1s}}{2}\sqrt{\frac{g}{\sigma_{0s}}}
+\qquad \text{(pre-sliding damping ratios)}.
+\end{equation}
+Derived lever fractions (functions of $\Lambda$ only, not new variables):
+$\lambda_h = 1/(1+\Lambda)$, $\lambda_l = \Lambda/(1+\Lambda)$, $\lambda_h + \lambda_l = 1$.
+\textbf{Motion (grip demand)} (vary with the commanded trajectory):
+\begin{equation}
+\Pi_a = \frac{V_0}{\mu g T},\qquad
+\Pi_c = \frac{\Omega_0 V_0}{\mu g},\qquad
+\Pi_\omega = \frac{h\Omega_0^2}{\mu g},\qquad
+\Pi_\alpha = \frac{h\Omega_0}{\mu g T},
+\end{equation}
+\begin{equation}
+\beta_1 = \frac{p_1 V_0}{\mu m_s g R^2},\qquad
+\beta_m = \frac{G^2\eta K_t K_b\,V_0}{R_a^{\mathrm{m}}\,\mu m_s g R^2},\qquad
+\beta_2 = \frac{p_2 V_0}{\mu m_s g r_r^2},
+\end{equation}
+\begin{equation}
+\Pi_b = \frac{\mu}{\sigma_0 V_0 T},\qquad
+\hat v = \frac{v_{\mathrm{str}}}{V_0},\qquad
+\hat\omega_b = T\sqrt{\sigma_0 g},
+\end{equation}
+and the derived motion ratio $\nu = h\Omega_0/V_0 = \Pi_\omega/\Pi_c$
+(rotational vs.\ translational speed at the wheel; not a new variable).
+
+\medskip
+\begin{tabular}{@{}llll@{}}
+\toprule
+Constant & Base value & Constant & Base value \\
+\midrule
+$r_m$ & 0.843 & $\varepsilon_X$ & 0.068 \\
+$\Lambda$ & 0.638 & $\varepsilon_Y$ & $-0.173$ \\
+$\iota$ & 0.838 & $\hat\chi$ & 0.021 \\
+$\hat\jmath_w$ & 0.066 & $\mu$ & $\{0.3, 0.5, 0.8\}$ \\
+$\hat\tau$ & 0.573 & $\rho$ & 0.213 \\
+$\hat\jmath_r$ & $1.60\times10^{-3}$ & $\rho_a$ & 0.710 \\
+$r_s$ & 1.1 & $\kappa_\sigma$ & 1.505 \\
+$\kappa_\chi$ & 0.345 & $\zeta_b$ & 0.062 \\
+$\zeta_{bs}$ & 0.052 & $\hat\tau_V$ & 0.535 \\
+$\hat\tau_i$ & 0.571 & $\hat\tau_f$ & 0.013 \\
+\bottomrule
+\end{tabular}
+
+\section{Body translational equations ($V_x$, $V_y$)}
+
+\subsection{Dimensional form}
+Force balance along the body axes (N):
+\begin{align}
+m_s\dot V_x - m a_Y\ddot\psi &= \textstyle\sum_i F_{x,i}
+  + m_s\dot\psi V_y + m a_X\dot\psi^2, \label{eq:x}\\
+m_s\dot V_y + m a_X\ddot\psi &= \textstyle\sum_i F_{y,i}
+  - m_s\dot\psi V_x + m a_Y\dot\psi^2. \label{eq:y}
+\end{align}
+The only external force on the body in the plane is the contact traction
+$\sum_i F_i$, so the balanced quantity is traction force.
+
+\subsection{Scaling choice}
+\begin{itemize}
+  \item \textbf{Force scale: $m_s g$} (total weight $= \sum_i N_i$, since the
+    normal loads include the wheel weights). The friction force is kept on this
+    scale so that $\mu$ remains a free parameter that can be varied across
+    simulations; $\sum_i \st{F_i}$ is bounded by roughly $\mu_s$.
+  \item \textbf{Inertial terms are multiplied and divided by $\mu$}, so that
+    each one reads as $\mu\times$(fraction of available grip demanded by the
+    motion).
+\end{itemize}
+
+\subsection{$\mu$-modified non-dimensional form}
+Dividing \eqref{eq:x}--\eqref{eq:y} by $m_s g$:
+\begin{align}
+\mu\Big[\Pi_a\,\st{\dot V_x} - r_m\Lambda\varepsilon_Y\Pi_\alpha\,\st{\ddot\psi}\Big]
+ &= \textstyle\sum_i \st{F_{x,i}}
+ + \mu\Big[\Pi_c\,\st{\dot\psi}\st{V_y} + r_m\varepsilon_X\Pi_\omega\,(\st{\dot\psi})^{2}\Big],
+ \label{eq:xnd}\\
+\mu\Big[\Pi_a\,\st{\dot V_y} + r_m\varepsilon_X\Pi_\alpha\,\st{\ddot\psi}\Big]
+ &= \textstyle\sum_i \st{F_{y,i}}
+ + \mu\Big[-\Pi_c\,\st{\dot\psi}\st{V_x} + r_m\Lambda\varepsilon_Y\Pi_\omega\,(\st{\dot\psi})^{2}\Big].
+ \label{eq:ynd}
+\end{align}
+
+\subsection{Significance of each term}
+\begin{tabular}{@{}>{$}l<{$}p{0.66\linewidth}@{}}
+\toprule
+\text{Term} & Physical significance \\
+\midrule
+\mu\,\Pi_a\,\st{\dot V}
+  & Linear inertia: acceleration $V_0/T$ as a fraction $\Pi_a$ of the grip-limited
+    acceleration $\mu g$. \\
+\mu\,r_m(\Lambda\varepsilon_Y,\ \varepsilon_X)\,\Pi_\alpha\,\st{\ddot\psi}
+  & Yaw-acceleration coupling through the CoM offset: tangential acceleration of
+    the offset CoM vs.\ $\mu g$; vanishes for a centred CoM. \\
+\sum_i \st{F_i}
+  & Net contact traction vs.\ total weight; bounded by $\approx\mu_s$. Carries all
+    of the friction nonlinearity (pre-sliding $\to$ Stribeck $\to$ gross sliding). \\
+\mu\,\Pi_c\,\st{\dot\psi}\st{V}
+  & Coriolis/centripetal demand of turning while translating, $\Omega_0V_0$, vs.\
+    $\mu g$. Bilinear in the states: a geometric (non-friction) nonlinearity. \\
+\mu\,r_m(\varepsilon_X,\ \Lambda\varepsilon_Y)\,\Pi_\omega\,(\st{\dot\psi})^{2}
+  & Centripetal load on the offset CoM during rotation vs.\ $\mu g$; quadratic in
+    yaw rate; vanishes for a centred CoM. \\
+\bottomrule
+\end{tabular}
+
+\medskip
+When the bracketed grip-demand groups are $\ll 1$ the contacts stay in the stiff,
+near-linear pre-sliding regime; as the combined demand approaches $1$ the contacts
+enter the Stribeck and gross-sliding regimes and friction saturates.
+
+\subsection{Normal-load distribution}
+The CoM offset also sets the static normal loads, so $\varepsilon_X$,
+$\varepsilon_Y$ enter the right-hand side through the friction forces:
+\begin{equation}
+\st{N_i} = \frac{N_i}{m_s g}
+ = \frac{r_m}{4}\big(1 + s_{x,i}\,\varepsilon_X + s_{y,i}\,\varepsilon_Y\big)
+ + \frac{1-r_m}{4}.
+\end{equation}
+This decides which wheel saturates first and may matter more for nonlinearity
+than the small CoM terms on the left-hand side.
+
+\section{Body yaw equation ($\dot\psi$)}
+
+\subsection{Dimensional form}
+Moment balance about the vertical axis through the geometric centre (N\,m):
+\begin{equation}
+I_s\ddot\psi - m a_Y\dot V_x + m a_X\dot V_y
+ = \textstyle\sum_i \big(p_{x,i}F_{y,i} - p_{y,i}F_{x,i}\big)
+ + \sum_i M_{z,i}
+ - m\dot\psi\,(a_X V_x + a_Y V_y). \label{eq:yaw}
+\end{equation}
+
+\subsection{Scaling choice}
+Moment scale $m_s g h(1+\Lambda)$: the force scale of the translational equations
+times the yaw lever $h + l$, so that both planar dimensions enter. With
+$45^\circ$ rollers each wheel's traction acts on the yaw axis through this lever,
+so the available yaw moment scales as $\mu\,m_s g h(1+\Lambda)$. Inertial terms
+are again multiplied and divided by $\mu$.
+
+\subsection{$\mu$-modified non-dimensional form}
+\begin{multline}
+\mu\Big[\iota(1+\Lambda)\,\Pi_\alpha\,\st{\ddot\psi}
+ - r_m\lambda_l\varepsilon_Y\Pi_a\,\st{\dot V_x}
+ + r_m\lambda_h\varepsilon_X\Pi_a\,\st{\dot V_y}\Big]
+ = \textstyle\sum_i\big(\lambda_h s_{x,i}\st{F_{y,i}} - \lambda_l s_{y,i}\st{F_{x,i}}\big)
+ + \sum_i \st{M_{z,i}} \\
+ - \mu\,r_m\Pi_c\,\st{\dot\psi}\big(\lambda_h\varepsilon_X\st{V_x} + \lambda_l\varepsilon_Y\st{V_y}\big).
+ \label{eq:yawnd}
+\end{multline}
+
+\subsection{Significance of each term}
+\begin{tabular}{@{}>{$}l<{$}p{0.62\linewidth}@{}}
+\toprule
+\text{Term} & Physical significance \\
+\midrule
+\mu\,\iota(1+\Lambda)\,\Pi_\alpha\,\st{\ddot\psi}
+  & Yaw inertia: tangential acceleration $(h+l)\Omega_0/T$ at the yaw lever vs.\
+    $\mu g$, weighted by $\iota = (k/(h+l))^2$, the squared ratio of the
+    platform's radius of gyration $k$ to the yaw lever. \\
+\mu\,r_m(\lambda_l\varepsilon_Y,\ \lambda_h\varepsilon_X)\,\Pi_a\,\st{\dot V}
+  & Linear acceleration of the offset CoM producing a yaw moment; vanishes for a
+    centred CoM. \\
+\sum_i(\lambda_h s_x\st{F_y} - \lambda_l s_y\st{F_x})
+  & Yaw moment of the contact traction forces at the wheel positions; carries the
+    translational friction nonlinearity into yaw. $\lambda_h$, $\lambda_l$ are
+    the shares of the yaw lever from the length and the width. \\
+\sum_i \st{M_{z,i}}
+  & Contact-patch spin friction torque. Bounded by
+    $\approx(3\pi/16)\,\mu_s\,\lambda_h\hat\chi \approx 0.008\,\mu$ in total: small, but the
+    only yaw term that comes purely from spin friction. \\
+\mu\,r_m\Pi_c\,\st{\dot\psi}(\lambda_h\varepsilon_X\st{V_x} + \lambda_l\varepsilon_Y\st{V_y})
+  & Gyroscopic term from the CoM offset (turning while translating); bilinear in
+    the states; vanishes for a centred CoM. \\
+\bottomrule
+\end{tabular}
+
+\subsection{Yaw inertia and the COM offset}
+$I_s$ is the inertia about the geometric centre, the reference point of the mass
+matrix. When the COM offset changes because a payload is moved, it changes with
+it by the parallel-axis theorem:
+\begin{equation}
+I_s = I_G + m(a_X^2 + a_Y^2), \qquad
+\iota = \iota_G + r_m\,\frac{\varepsilon_X^2 + \Lambda^2\varepsilon_Y^2}{(1+\Lambda)^2},
+\qquad \iota_G = \frac{I_G}{m_s h^2(1+\Lambda)^2},
+\end{equation}
+so $\varepsilon_X$, $\varepsilon_Y$ and $\iota$ are not independent: $\iota_G$ is
+the fixed robot constant and $\iota$ follows from the offset.
+
+\section{Wheel spin equation ($\omega_i$)}
+
+\subsection{Dimensional form}
+Torque balance about the wheel axle (N\,m), one per wheel:
+\begin{equation}
+J_w\dot\omega_i = \tau_{\mathrm{sat},i} - F_{x,i}R - p_1\omega_i,
+\qquad \tau_{\mathrm{sat},i} = \mathrm{sat}(\tau_i, \tau_{\max}). \label{eq:wheel}
+\end{equation}
+
+\subsection{Scaling choice}
+Torque scale $m_s g R$: the force scale of the body equations times the wheel
+radius, so the rim reaction $F_{x,i}R$ becomes exactly the same $\st{F_{x,i}}$
+that appears in the body equations. Wheel speed is scaled by the rolling speed,
+$\omega_i = (V_0/R)\,\st{\omega_i}$. The inertial and viscous terms are
+multiplied and divided by $\mu$.
+
+\subsection{$\mu$-modified non-dimensional form}
+\begin{equation}
+\mu\,\hat\jmath_w\Pi_a\,\st{\dot\omega_i}
+ = \st{\tau_{\mathrm{sat},i}} - \st{F_{x,i}} - \mu\,\beta_1\,\st{\omega_i},
+\qquad |\st{\tau_{\mathrm{sat},i}}| \le \hat\tau. \label{eq:wheelnd}
+\end{equation}
+
+\subsection{Significance of each term}
+\begin{tabular}{@{}>{$}l<{$}p{0.66\linewidth}@{}}
+\toprule
+\text{Term} & Physical significance \\
+\midrule
+\mu\,\hat\jmath_w\Pi_a\,\st{\dot\omega}
+  & Wheel inertia: $\hat\jmath_w$ is the wheel's rotational inertia expressed as an
+    equivalent translating mass, as a fraction of the total mass. \\
+\st{\tau_{\mathrm{sat}}}
+  & Motor torque vs.\ weight torque; saturates at $\hat\tau$ (actuator
+    nonlinearity). \\
+\st{F_x}
+  & Contact friction reaction at the rim, bounded by $\approx\mu_s\st{N_i}$
+    (friction nonlinearity). \\
+\mu\,\beta_1\,\st{\omega}
+  & Drivetrain viscous torque at the reference speed as a fraction of the grip
+    torque $\mu m_s g R$. \\
+\bottomrule
+\end{tabular}
+
+\subsection{Two saturations}
+Per wheel the motor can deliver up to $\hat\tau = 0.573$, while the contact can
+transmit only $\approx\mu_s\st{N_i}\approx\mu/4$. Their ratio
+$\hat\tau/(\mu/4)\approx 2.3/\mu$ is $2.9$--$7.6$ for $\mu = 0.8$--$0.3$, so the
+motor can overpower the contact and drive the wheel into slip well before the
+actuator itself saturates. The wheel equation behaves linearly only while both
+$\st{\tau}$ and $\st{F_x}$ stay inside their limits.
+
+\subsection{DC-motor torque map (back-EMF limit)}
+In the voltage-input plant (\texttt{hybrid\_ctrl/plant.jl}, \texttt{motor\_torque})
+$\tau_{\mathrm{sat},i}$ is not a fixed cap but the output of a static motor map.
+With armature inductance neglected ($L_a = 0$), the armature voltage balance
+(V) and the gearbox torque relation are
+\begin{equation}
+V_i = R_a^{\mathrm{m}}\,i_i + K_b\,G\,\omega_i,\qquad
+|i_i| \le i_{\max},\quad |V_i| \le V_{\max},\qquad
+\tau_i = G\eta\big(K_t\,i_i - \tau_f\,\mathrm{sgn}(G\omega_i)\big),
+\end{equation}
+where $G$ is the gear ratio, $\eta$ the gear efficiency, $K_t$, $K_b$ the torque
+and back-EMF constants, $R_a^{\mathrm{m}}$ the winding resistance (superscript to
+distinguish it from the roller axle distance $R_a$) and $\tau_f$ the motor-shaft
+Coulomb friction. A voltage-rate (slew) limit $|\dot V| \le \dot V_{\max}$ is
+applied in the mixer.
+
+\paragraph{Non-dimensional form.} With $V_i = V_{\max}\st{V_i}$ and the wheel
+torque scale $m_s g R$:
+\begin{equation}
+\st{\tau_i} = \mathrm{clamp}\Big(\hat\tau_V\,\st{V_i} - \mu\,\beta_m\,\st{\omega_i},\
+ -\hat\tau_i,\ \hat\tau_i\Big) - \hat\tau_f\,\mathrm{sgn}(\st{\omega_i}),
+\qquad |\st{V_i}| \le 1 .
+\end{equation}
+
+\medskip
+\begin{tabular}{@{}>{$}l<{$}p{0.70\linewidth}@{}}
+\toprule
+\text{Constant} & Physical significance \\
+\midrule
+\hat\tau_V = 0.535
+  & Stall torque available from the full bus voltage, vs.\ weight torque. \\
+\hat\tau_i = 0.571
+  & Current-limited torque vs.\ weight torque. $\hat\tau_V < \hat\tau_i$, so with
+    the base $R_a^{\mathrm{m}} = 2\,\Omega$ the voltage limit binds first. \\
+\mu\beta_m\st{\omega}
+  & Back-EMF torque loss at the reference speed vs.\ the grip torque. The
+    electrical damping $G^2\eta K_tK_b/R_a^{\mathrm{m}} = 0.337$\,N\,m\,s is about
+    three times the drivetrain viscous $p_1 = 0.11$. \\
+\hat\tau_f = 0.013
+  & Motor-shaft Coulomb friction vs.\ weight torque (sign nonlinearity at
+    wheel reversals). \\
+V_{\max}/(\dot V_{\max}T)
+  & Voltage slew time ($0.12$\,s) vs.\ manoeuvre time. \\
+\bottomrule
+\end{tabular}
+
+\paragraph{Speed-dependent torque envelope.} The torque available at full
+voltage falls linearly with wheel speed,
+\begin{equation}
+|\st{\tau}|_{\mathrm{avail}} = \min\big(\hat\tau_i,\ \hat\tau_V - \mu\beta_m|\st\omega|\big)
+ = \hat\tau_V\Big(1 - \frac{R|\omega|}{v_{\mathrm{nl}}}\Big),
+\qquad v_{\mathrm{nl}} = \frac{R\,V_{\max}}{K_b G} = 1.39\ \text{m/s},
+\end{equation}
+reaching zero at the no-load rim speed $v_{\mathrm{nl}}$ (in non-dimensional form
+$v_{\mathrm{nl}}/V_0 = \hat\tau_V/(\mu\beta_m)$, not a new variable). Comparing
+with the per-wheel grip $\approx\mu\st{N_i}\approx\mu/4$, the motor envelope drops
+below the grip limit for rim speeds above
+\begin{equation}
+\frac{R|\omega|}{v_{\mathrm{nl}}} \gtrsim 1 - \frac{\mu}{4\hat\tau_V}
+ \approx 1 - 0.47\,\mu ,
+\end{equation}
+i.e.\ about $1.06$\,m/s at $\mu = 0.5$ and $0.87$\,m/s at $\mu = 0.8$. Below this
+speed friction saturates first (wheel slip); above it the actuator saturates
+first. The two saturations of the wheel equation therefore trade places with
+speed, and the crossover depends only on $\mu$ and $\hat\tau_V$.
+
+\paragraph{Torque-input plant.} \texttt{run\_one.jl} bypasses this map and applies
+a smooth saturation at $\tau_{\max} = 10$\,N\,m ($\hat\tau = 0.573$) with no
+back-EMF; it corresponds to the limit $\beta_m \to 0$, $\hat\tau_V \to \hat\tau$.
+
+\subsection{Wheel inertia reflected into the body}
+Under rolling without slip, the four wheels add their inertia to the body
+equations: the effective mass becomes $m_s(1 + 4\hat\jmath_w)$ in $x$ and $y$,
+and the yaw inertia constant becomes
+\begin{equation}
+\iota_{\mathrm{aug}} = \iota + 4\hat\jmath_w = 0.838 + 0.264 = 1.102,
+\end{equation}
+consistent with \texttt{M\_aug} in \texttt{run\_one.jl}
+($m_{\tilde{}} = m_s + 4J_w/R^2$, $I_{\psi,\mathrm{aug}} = I_s + 4J_w(h+l)^2/R^2$).
+With the yaw lever $h+l$ as the reference, the same $4\hat\jmath_w$ appears in
+both translation and yaw.
+
+\section{Roller spin equation ($\dot\gamma_i$)}
+
+\subsection{Dimensional form}
+Torque balance about the axle of the roller in contact (N\,m), one per wheel,
+with the inertia of the $n_r$ rollers lumped:
+\begin{equation}
+n_r J_r\ddot\gamma_i = -p_2\dot\gamma_i - F_{x,i}A_i - F_{y,i}B_i - M_{z,i}C_i,
+\label{eq:roller}
+\end{equation}
+\begin{align*}
+A_i &= \sin\delta_i\,(R - R_a\cos\tilde\theta_i) - DY_i\sin\tilde\theta_i\cos\delta_i,
+\qquad DY_i = R_a\tan\delta_i\tan\tilde\theta_i,\\
+B_i &= \cos\delta_i\,(R_a - R\cos\tilde\theta_i), \qquad
+C_i = \sin\tilde\theta_i\cos\delta_i,
+\end{align*}
+where $\tilde\theta_i = \mathrm{saw}(\theta_i)\in[-15^\circ, 15^\circ]$ locates the
+contact on the roller in contact.
+
+\subsection{Scaling choice}
+Torque scale $m_s g\,r_r$: the force scale times the roller radius
+$r_r = R - R_a$, which is the lever of the contact forces about the roller axle.
+Roller spin is scaled by the speed at which the roller surface must move to
+carry the reference speed, $\dot\gamma_i = (V_0/r_r)\,\st{\dot\gamma_i}$.
+Inertial and viscous terms are multiplied and divided by $\mu$.
+
+\subsection{Dimensionless lever arms}
+Using $\tan\delta\cos\delta = \sin\delta$, the levers simplify to
+\begin{equation}
+\hat A_i = \frac{A_i}{r_r} = \sin\delta_i\,\frac{1 - \rho_a/\cos\tilde\theta_i}{1-\rho_a},
+\qquad
+\hat B_i = \frac{B_i}{r_r} = -\cos\delta_i\,\frac{\cos\tilde\theta_i - \rho_a}{1-\rho_a},
+\qquad
+\hat C_i = \sin\tilde\theta_i\cos\delta_i .
+\end{equation}
+At the roller centre ($\tilde\theta = 0$): $\hat A = \sin\delta$,
+$\hat B = -\cos\delta$, $\hat C = 0$. At the roller edge ($\tilde\theta = \pm15^\circ$):
+$\hat A = 0.91\sin\delta$, $\hat B = -0.88\cos\delta$,
+$\hat C = \pm0.26\cos\delta$. The levers vary periodically as each roller passes
+through contact, at the roller-passing frequency $n_r\omega_i/2\pi$.
+
+\subsection{$\mu$-modified non-dimensional form}
+\begin{equation}
+\mu\,\hat\jmath_r\Pi_a\,\st{\ddot\gamma_i}
+ = -\mu\,\beta_2\,\st{\dot\gamma_i}
+   - \hat A_i\,\st{F_{x,i}} - \hat B_i\,\st{F_{y,i}}
+   - \kappa_s\,\hat C_i\,\st{M_{z,i}},
+\qquad \kappa_s = \frac{h(1+\Lambda)}{r_r} = \frac{1+\Lambda}{\rho(1-\rho_a)}.
+\label{eq:rollernd}
+\end{equation}
+($\kappa_s = 26.5$ only converts $\st{M_z}$ from the yaw scale $m_s g h(1+\Lambda)$
+to the roller scale; the spin torque itself is bounded by
+$\approx(3\pi/16)\mu_s N_i\chi$, i.e.\ $\approx 0.6\,\mu_s\st{N_i}\,\chi/r_r$ on the
+roller scale, with $\chi/r_r = 0.34$.)
+
+\subsection{Significance of each term}
+\begin{tabular}{@{}>{$}l<{$}p{0.62\linewidth}@{}}
+\toprule
+\text{Term} & Physical significance \\
+\midrule
+\mu\,\hat\jmath_r\Pi_a\,\st{\ddot\gamma}
+  & Roller inertia, as an equivalent translating mass at the roller surface, as a
+    fraction of the total mass ($\hat\jmath_r = 1.6\times10^{-3}$, about 40 times
+    smaller than $\hat\jmath_w$). \\
+\mu\,\beta_2\,\st{\dot\gamma}
+  & Roller-bearing viscous torque at the reference roller speed as a fraction of
+    the grip torque $\mu m_s g r_r$. Measures how far the roller is from an ideal
+    free roller. \\
+\hat A\st{F_x} + \hat B\st{F_y}
+  & Torque of the contact friction forces about the roller axle. The lever arms
+    depend on where the contact sits on the roller (geometric, periodic
+    nonlinearity through $\tilde\theta$). \\
+\kappa_s\hat C\,\st{M_z}
+  & Spin friction torque projected onto the roller axle; zero at the roller
+    centre, largest at the roller edges. \\
+\bottomrule
+\end{tabular}
+
+\subsection{Quasi-static (slaved) roller}
+The ratio of the inertial to the viscous term is
+$\hat\jmath_r\Pi_a/\beta_2 = \tau_r/T$, with the roller mechanical time constant
+$\tau_r = n_r J_r/p_2 \approx 2.1$\,ms. For any manoeuvre with $T \gg \tau_r$ the
+roller equation is effectively algebraic,
+\begin{equation}
+\mu\,\beta_2\,\st{\dot\gamma_i}
+ \approx -\hat A_i\st{F_{x,i}} - \hat B_i\st{F_{y,i}} - \kappa_s\hat C_i\st{M_{z,i}},
+\end{equation}
+i.e.\ the roller spins until the friction torque about its axle balances bearing
+drag. Since $\beta_2$ is small, the friction force along the roller's rolling
+direction stays small: this is the free-roller constraint that gives the
+mecanum wheel its force direction. $\tau_r/T$ is the small parameter of a
+singular perturbation, and the roller state is a source of stiffness rather than
+of slow dynamics.
+
+\section{Bristle equations ($z_x$, $z_y$, $z_s$)}
+
+\subsection{Dimensional form}
+Rate balance of the bristle deflection at each contact: slip drives the
+deflection, relaxation pulls it back (translational in m/s, spin in rad/s):
+\begin{align}
+\dot z_{x} &= V_{px} - \sigma_0\,\frac{s_t}{g_t}\,z_{x}, \qquad
+\dot z_{y} = V_{py} - \sigma_0\,\frac{s_t}{g_t}\,z_{y}, \label{eq:bristle}\\
+\dot z_{s} &= \omega_{z} - \sigma_{0s}\,\frac{s_s}{g_s}\,z_{s}, \label{eq:bristles}
+\end{align}
+with effective sliding speeds (Adamov coupling) and Stribeck curves
+\begin{gather*}
+s_t = f_{sl}\,\tfrac{8}{3\pi}\chi|\omega_z| + |V_p|, \qquad
+s_s = \tfrac{16}{3\pi}\chi|\omega_z| + 5|V_p|,\\
+g_{t,s} = \mu\big[1 + (r_s - 1)\,e^{-(s/v_{\mathrm{str}})^2}\big], \qquad
+f_{sl} = 1 - \big(1 - |z|/\delta^*\big)^{2/3},\quad \delta^* = \mu_s/\sigma_0 .
+\end{gather*}
+
+\subsection{Scaling choice}
+\begin{itemize}
+  \item \textbf{Deflection} relative to the Coulomb breakaway deflection
+    $\delta_c = \mu/\sigma_0$:
+    $\hat z = \sigma_0 z/\mu$. Since the elastic friction force is
+    $N\sigma_0 z$, $\mu\hat z$ is the instantaneous elastic friction
+    coefficient, and $|\hat z| \lesssim r_s$.
+  \item \textbf{Spin deflection} relative to its breakaway in the same way:
+    $\hat z_s = \chi\sigma_{0s} z_s/\mu$, so that $\mu\hat z_s = M_z^{\mathrm{el}}/(N\chi)$.
+  \item \textbf{Slip and sliding speeds} by $V_0$; \textbf{contact spin} by the
+    roller-surface rate, $\omega_z = (V_0/r_r)\,\st{\omega_z}$.
+  \item \textbf{Stribeck curves} are written as $g = \mu\,\hat g$ with the
+    $\mu$-free shape $\hat g(\st s) = 1 + (r_s-1)\,e^{-(\st s/\hat v)^2}$.
+\end{itemize}
+
+\subsection{Non-dimensional form}
+\begin{align}
+\Pi_b\,\hat z_{x}' &= \st{V_{px}} - \frac{\st{s_t}}{\hat g_t}\,\hat z_{x}, \qquad
+\Pi_b\,\hat z_{y}' = \st{V_{py}} - \frac{\st{s_t}}{\hat g_t}\,\hat z_{y},
+\label{eq:bristlend}\\
+\kappa_\sigma\Pi_b\,\hat z_{s}' &= \kappa_\chi\,\st{\omega_z}
+ - \frac{\st{s_s}}{\hat g_s}\,\hat z_{s}, \label{eq:bristlesnd}
+\end{align}
+\begin{gather*}
+\st{s_t} = f_{sl}\,\tfrac{8}{3\pi}\kappa_\chi|\st{\omega_z}| + |\st{V_p}|, \qquad
+\st{s_s} = \tfrac{16}{3\pi}\kappa_\chi|\st{\omega_z}| + 5|\st{V_p}|, \qquad
+f_{sl} = 1 - \big(1 - |\hat z|/r_s\big)^{2/3}.
+\end{gather*}
+Here $(\cdot)'$ is the derivative with respect to $\st t = t/T$. $\mu$ has
+dropped out of the equations except through $\Pi_b$.
+
+\subsection{Significance of each term and constant}
+\begin{tabular}{@{}>{$}l<{$}p{0.66\linewidth}@{}}
+\toprule
+\text{Term / constant} & Physical significance \\
+\midrule
+\Pi_b\,\hat z'
+  & Bristle storage. $\Pi_b = \delta_c/(V_0T)$ is the pre-sliding (breakaway)
+    length compared with the distance travelled in a manoeuvre; equivalently the
+    bristle relaxation time $\delta_c/V_0$ vs.\ $T$. \\
+\st{V_p}
+  & Contact slip velocity driving the deflection. \\
+\st{s_t}\hat z/\hat g_t
+  & Bristle relaxation. Bilinear in slip speed and deflection: the source of the
+    pre-sliding $\to$ sliding transition. \\
+\kappa_\chi\st{\omega_z}
+  & Contact spin as a patch-edge speed $\chi|\omega_z|$ compared with $V_0$
+    ($\kappa_\chi = \chi/r_r$). \\
+\kappa_\sigma
+  & Ratio of translational to spin bristle stiffness; the spin bristles relax
+    $\kappa_\sigma$ times more slowly. \\
+r_s,\ \hat v
+  & Stiction-to-Coulomb ratio and Stribeck speed relative to $V_0$: the size and
+    the width of the friction peak at low sliding speed. \\
+\kappa_\chi|\st{\omega_z}|/|\st{V_p}|
+  & Adamov coupling: when contact spin is large compared with translational slip,
+    $\st{s_t}$ is raised and translational friction is reduced (spin
+    ``lubricates'' translation). \\
+\bottomrule
+\end{tabular}
+
+\subsection{Where the bristle equation is linear}
+With $\Pi_b \approx 6\times10^{-4}$ ($\mu = 0.5$, $V_0 = 0.5$\,m/s, $T = 1$\,s)
+the bristle states are fast. The equations are linear (a stiff spring,
+$\hat z' \approx \st{V_p}/\Pi_b$, force $\propto$ deflection) only while the
+relaxation term is negligible, i.e.\ while $|\hat z| \ll 1$: the slip
+displacement accumulated over the manoeuvre must stay well below the breakaway
+length $\delta_c = \mu/\sigma_0 \approx 0.2$--$0.5$\,mm. In terms of slip
+velocity, $|V_p| \lesssim \delta_c/T$, a fraction of a mm/s. Once slip exceeds
+this, relaxation dominates and the force saturates toward
+$\mu N\,\hat g\,V_p/s$: Coulomb-like, sign-type behaviour. The numerical
+regularisation $\varepsilon_{\mathrm{reg}} = 10^{-4}$\,m/s is of the same order
+as this threshold, so part of the apparent ``linear zone'' is set by the
+regularisation rather than by physics.
+
+\section{Friction force laws}
+
+\subsection{Dimensional form}
+Force balance at the contact patch (N) and torque balance about the contact
+normal (N\,m), per wheel:
+\begin{gather}
+F_{x} = -N\big(\sigma_0 z_x + \sigma_1\dot z_x + \sigma_2 V_{px}\big),\qquad
+F_{y} = -N\big(\sigma_0 z_y + \sigma_1\dot z_y + \sigma_2 V_{py}\big),\\
+M_z = -N\chi^2\big(\sigma_{0s}z_s + \sigma_{1s}\dot z_s + \sigma_{2s}\omega_z\big).
+\end{gather}
+In \texttt{run\_one.jl} $\sigma_2 = \sigma_{2s} = 0$ (viscous losses are carried by
+$p_1$, $p_2$).
+
+\subsection{Non-dimensional form}
+Using the bristle scalings of the previous section,
+$\dot z = V_0(\st{V_p} - \st{s_t}\hat z/\hat g_t)$ and
+$\chi\dot z_s = V_0(\kappa_\chi\st{\omega_z} - \st{s_s}\hat z_s/\hat g_s)$, so
+\begin{align}
+\st{F_{x}} &= -\mu\,\st{N}\Big[\hat z_x
+  + \Pi_{\sigma}\big(\st{V_{px}} - \tfrac{\st{s_t}}{\hat g_t}\hat z_x\big)\Big],
+  \qquad \text{(same for $y$)}\\
+\st{M_z} &= -\mu\,\st{N}\,\lambda_h\hat\chi\Big[\hat z_s
+  + \Pi_{\sigma s}\big(\kappa_\chi\st{\omega_z} - \tfrac{\st{s_s}}{\hat g_s}\hat z_s\big)\Big],
+\end{align}
+with the micro-damping groups
+\begin{equation}
+\Pi_\sigma = \frac{\sigma_1 V_0}{\mu} = \frac{2\zeta_b}{\Pi_b\,\hat\omega_b},
+\qquad
+\Pi_{\sigma s} = \frac{\sigma_{1s} V_0}{\mu}
+ = \frac{2\zeta_{bs}}{\sqrt{\kappa_\sigma}\,\Pi_b\,\hat\omega_b}.
+\end{equation}
+
+\subsection{Significance}
+\begin{tabular}{@{}>{$}l<{$}p{0.66\linewidth}@{}}
+\toprule
+\text{Term / constant} & Physical significance \\
+\midrule
+\mu\st{N}\hat z
+  & Elastic bristle force: the friction force carried by contact deflection. \\
+\mu\st{N}\Pi_\sigma\,\dot{\hat z}\text{-term}
+  & Bristle micro-damping. Vanishes in steady sliding ($\dot z \to 0$); active
+    only during pre-sliding and transients. \\
+\hat\omega_b = T\sqrt{\sigma_0 g}
+  & Manoeuvre time in units of the pre-sliding oscillation period: the body
+    mass bouncing on the bristle stiffness $N\sigma_0$
+    ($\sqrt{\sigma_0 g} \approx 127$\,rad/s, about 20\,Hz). \\
+\zeta_b,\ \zeta_{bs}
+  & Damping ratio of that pre-sliding oscillation (translation, spin): a material
+    property, independent of $\mu$ and of the motion. \\
+\mu\st{N}\lambda_h\hat\chi\,\hat z_s
+  & Spin friction torque relative to the yaw scale; contact-patch radius
+    $\chi$ as the lever. \\
+\bottomrule
+\end{tabular}
+
+\medskip
+The pre-sliding regime is therefore a lightly damped ($\zeta_b \approx 0.06$)
+oscillator at about 20\,Hz. In this regime the friction is linear but resonant;
+outside it the friction saturates. Both are relevant to controller choice: a
+linear design must either stay out of the saturation or tolerate the lightly
+damped stick mode.
+
+\section{Contact-slip kinematics}
+
+\subsection{Dimensional form}
+Velocity compatibility at the contact point: body velocity at the contact,
+minus wheel rim speed, minus roller surface speed (m/s, rad/s), per wheel:
+\begin{align*}
+V_{px} &= V_x - \dot\psi(p_y + DY) - \omega R
+  + \dot\gamma\sin\delta(R_a\cos\tilde\theta - R) + DY\dot\gamma\cos\delta\sin\tilde\theta,\\
+V_{py} &= V_y + \dot\psi\,p_x + \dot\gamma\cos\delta(R\cos\tilde\theta - R_a),\\
+\omega_z &= \dot\psi + \dot\gamma\sin\tilde\theta\cos\delta .
+\end{align*}
+
+\subsection{Non-dimensional form}
+With $V = V_0\st V$, $\dot\psi = \Omega_0\st{\dot\psi}$,
+$\omega = (V_0/R)\st\omega$, $\dot\gamma = (V_0/r_r)\st{\dot\gamma}$,
+$\omega_z = (V_0/r_r)\st{\omega_z}$:
+\begin{align}
+\st{V_{px}} &= \st{V_x} - \nu\big(\Lambda s_y + \rho\rho_a\tan\delta\tan\tilde\theta\big)\st{\dot\psi}
+  - \st{\omega} - \hat A\,\st{\dot\gamma},\\
+\st{V_{py}} &= \st{V_y} + \nu\,s_x\,\st{\dot\psi} - \hat B\,\st{\dot\gamma},\\
+\st{\omega_z} &= \nu\rho(1-\rho_a)\,\st{\dot\psi} + \hat C\,\st{\dot\gamma}.
+\end{align}
+The roller levers $\hat A$, $\hat B$, $\hat C$ are exactly those of the roller
+equation.
+
+\subsection{Significance}
+\begin{itemize}
+  \item The slip velocities are \emph{linear} in the velocity states; the only
+    nonlinearity is the periodic dependence of the coefficients on
+    $\tilde\theta = \mathrm{saw}(\theta)$ (a linear periodically time-varying
+    structure at the roller-passing frequency).
+  \item $\nu = h\Omega_0/V_0$ is the only motion group here: how much of the
+    contact velocity comes from rotation vs.\ translation. Pure translation
+    $\nu = 0$; pure spin-in-place $\nu \to \infty$. It is the natural axis for
+    classifying motions.
+  \item Virtual-power check: the $\dot\gamma$ coefficients in $\st{V_{px}}$,
+    $\st{V_{py}}$ are $-\hat A$, $-\hat B$, matching the roller equation's
+    $-\hat A\st{F_x} - \hat B\st{F_y}$. The $\dot\gamma$ coefficient in
+    $\st{\omega_z}$ is $+\hat C$, so energy consistency requires $+\hat C M_z$ in
+    the roller equation, whereas the code has $-\hat C M_z$ (see open notes).
+\end{itemize}
+
+\section{Material comparison: polyurethane vs.\ rubber rollers}
+The friction constants are fixed for a given roller material, but comparing two
+materials shows which ratios a material change would move. The rubber column is
+an \emph{estimate} scaled from the PU baseline with Hertz/Mindlin contact
+theory, assuming $E_{\mathrm{rubber}}/E_{\mathrm{PU}} \approx 1/10$ (e.g.\ Shore 60A
+rubber vs.\ Shore 90A PU): contact radius $\chi \propto E^{-1/3}$, tangential
+stiffness per unit load $\sigma_0 \propto G a/N \propto E^{2/3}$. Damping and
+friction levels are indicative ranges only and should be replaced by measured
+values.
+
+\medskip
+\begin{tabular}{@{}llll@{}}
+\toprule
+Constant & PU (base) & Rubber (estimate) & Basis \\
+\midrule
+$\mu$ & 0.3--0.8 (swept) & 0.6--0.9 & typical dry values \\
+$r_s = \mu_s/\mu_c$ & 1.1 & 1.1--1.3 & indicative \\
+$\hat\chi = \chi/h$ & 0.021 & 0.046 & $\chi\propto E^{-1/3}$ ($\times2.15$) \\
+$\kappa_\chi = \chi/r_r$ & 0.345 & 0.74 & same \\
+$\sigma_0$ [1/m] & 1640 & $\approx 350$ & $\sigma_0\propto E^{2/3}$ ($\times0.215$) \\
+$\sqrt{\sigma_0 g}$ [rad/s] & 127 & 59 & \\
+$\kappa_\sigma$ & 1.505 & 1.505 & assumed unchanged \\
+$\zeta_b$ & 0.062 & $\approx$0.12--0.19 & higher loss factor ($\times$2--3) \\
+$\Pi_b$ (relative) & 1 & $\approx 5$--6 & $\mu/\sigma_0$ \\
+\bottomrule
+\end{tabular}
+
+\medskip
+Qualitatively, rubber gives a longer pre-sliding range (larger $\Pi_b$, so a
+wider linear zone), a slower and better-damped stick mode, and roughly twice the
+spin coupling $\kappa_\chi$ (stronger Adamov spin--translation interaction).
+
+\section*{Open notes}
+\begin{itemize}
+  \item Yaw moment arm uses $p_{y,i}$ while the contact velocity uses
+    $p_{y,i} + DY_i$ (known; $\le 0.04\%$ of motor energy per
+    \texttt{energy\_audit/README.md}).
+  \item Roller torque equation: the $M_z$ term enters with sign $-M_z C_i$, whereas
+    virtual-power consistency with $\omega_{z,i}$ (see the contact-kinematics
+    section) requires $+M_z C_i$. To verify numerically.
+\end{itemize}
+
+\end{document}

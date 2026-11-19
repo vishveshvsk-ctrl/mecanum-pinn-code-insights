@@ -1,0 +1,5 @@
+tools/
+*.pdf
+*.aux
+*.log
+*.out

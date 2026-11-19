@@ -1,0 +1,201 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\title{Simulation Plan: Nonlinearity Envelopes of the LuGre--Adamov Mecanum Plant}
+\author{Vishvesh Koranne}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Intent (from \texttt{intent.txt})}
+Measure how nonlinear the full plant is (LuGre--Adamov friction included) by
+varying physically meaningful dimensionless constants, and map the result onto
+classes of motion to decide where a linear controller suffices and where a
+nonlinear/robust controller is warranted. The dimensionless groups are defined in
+\texttt{nd\_analysis.tex}; this document plans the simulations.
+
+\medskip
+\textbf{Deliverable.} For each plant/environment set, the boundary in motion space
+at which the nonlinearity measures flip from ``linear'' to ``nonlinear'', and a
+table translating that boundary into motion classes (cruise, aggressive
+acceleration, turning, reversal, creep/docking).
+
+\section{What is varied}
+
+\subsection{Plant / environment set (outer loop)}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Constant & Levels & Physical lever \\
+\midrule
+$\mu$ & 0.3, 0.5, 0.8 & floor surface \\
+$(\varepsilon_X, \varepsilon_Y)$, $\iota$ & COM offset magnitude $\times\{0, 1, 3\}$, & payload placement \\
+ & angle $\phi_c$ every $45^\circ$; $\iota$ by parallel axis & \\
+$\hat\chi$ ($\kappa_\chi$) & 0.021 (PU), 0.046 (rubber est.) & contact patch \\
+Material set & PU vs.\ rubber: $\hat\omega_b$ via $\sigma_0$, $\zeta_b$, $\hat\chi$, $r_s$ & roller material \\
+Friction case & 1, 2 ($\beta_1$, $\beta_2$ scaled by 10) & drivetrain/bearing losses \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\textbf{COM offset and yaw inertia move together.} Moving the payload shifts the
+COM and, by the parallel-axis theorem, the yaw inertia about the geometric centre
+(the reference point of the plant's mass matrix):
+\begin{equation}
+I_s = I_G + m\,(a_X^2 + a_Y^2), \qquad
+\iota = \iota_G + r_m\,\frac{\varepsilon_X^2 + \Lambda^2\varepsilon_Y^2}{(1+\Lambda)^2},
+\end{equation}
+with $I_G = I_s^{\mathrm{base}} - m(a_{X0}^2 + a_{Y0}^2)$ held fixed. At $3\times$ the
+base offset $I_s$ rises by about $5\%$. The offset is swept as a magnitude and a
+direction $\phi_c$, so that the COM can sit toward any wheel or edge.
+
+\medskip
+Held fixed (robot design): $r_m$, $\Lambda$, $\iota_G$, $\hat\jmath_w$,
+$\hat\jmath_r$, $\rho$, $\rho_a$, $\kappa_\sigma$, $\hat\tau_V$, $\hat\tau_i$,
+$\hat\tau_f$. The full factorial is $3\times(1 + 2\times8)\times2\times2 = 204$ sets; the
+preliminary sensitivity study (P5) is expected to prune it.
+
+\subsection{Motion set (inner loop)}
+For a given plant set, a motion is fixed by $V_0$, $\Omega_0$, $T$, the
+translation direction $\beta$ in the body frame, and the waveform. In
+non-dimensional form the independent motion axes are
+\begin{gather*}
+u = \frac{V_0}{v_{\mathrm{nl}}}\ \text{(speed vs.\ actuator)},\qquad
+\nu = \frac{h\Omega_0}{V_0}\ \text{(rotation share)},\\
+\Pi_a = \frac{V_0}{\mu g T}\ \text{(acceleration demand)},\qquad
+\beta\ \text{(direction)},
+\end{gather*}
+plus the waveform class. Every other motion group in \texttt{nd\_analysis.tex}
+follows from these and the plant set: e.g.\
+$\Pi_c = \nu\,u^2\,v_{\mathrm{nl}}^2/(\mu g h)$, $\beta_m = \hat\tau_V\,u/\mu$,
+$\Pi_b$, $\hat v$, $\hat\omega_b$. The translation direction spans the full circle,
+$\beta \in [0^\circ, 360^\circ)$ in $15^\circ$ steps (24 directions), and the yaw
+rate is signed ($\pm\nu$). The full circle is needed because the mecanum plant is
+anisotropic (Tier C found cross-coupling near 1 at the lateral cap) and an
+off-centre COM breaks the plant's mirror symmetries, so no quadrant can be
+inferred from another. P3 uses $45^\circ$ steps to locate sharp features; the
+main sweep refines around them.
+
+\medskip
+\textbf{Waveform classes} (each probes a different nonlinearity):
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item \emph{Cruise + small signal}: steady $(u,\nu,\beta)$ with a small multisine
+    on top. Probes the local plant (Jacobian, BLA).
+  \item \emph{Aggressive transient}: ramp/step to $(u,\nu,\beta)$ in time $T$.
+    Probes friction saturation via $\Pi_a$.
+  \item \emph{Reversal / oscillation}: velocity sign changes. Probes the
+    pre-sliding stick mode, Stribeck dip, $\hat\tau_f$.
+  \item \emph{Creep / docking}: $V_0$ of order $v_{\mathrm{str}}$ and holds.
+    Probes $\hat v$, $\Pi_b$, the bristle linear zone.
+\end{enumerate}
+
+\subsection{Nonlinearity measures and flip thresholds}
+Reused from \texttt{nonlinearity\_analysis/} (see its \texttt{REPORT.md}):
+
+\medskip
+\begin{tabular}{@{}p{0.27\linewidth}p{0.27\linewidth}p{0.38\linewidth}@{}}
+\toprule
+Measure & Flip criterion & Answers \\
+\midrule
+Tier A: Allgöwer $\nu_A$ (static map) & feasibility only & where steady motion is reachable \\
+Tier C: local Jacobian spread, cross-coupling & gain spread $> 2\times$ & how much the local linear model changes \\
+Tier B: BLA distortion (odd multisine) & $> -20$\,dB & open-loop, amplitude-dependent nonlinearity \\
+Tier F: Gamma $\hat\gamma$ (closed loop, linear PID) & $\hat\gamma > 1$ & whether a linear controller is enough \\
+\bottomrule
+\end{tabular}
+
+\medskip
+Tier F is the measure closest to the intent; Tiers B and C explain \emph{why} it
+flips.
+
+\section{Preliminary simulations (to fix the sweep ranges)}
+
+\begin{description}[leftmargin=0pt,itemsep=6pt]
+\item[P0. Toolchain and reproduction.] Add the remaining packages needed by
+  \texttt{run\_one.jl} and \texttt{hybrid\_ctrl} to the folder-local environment
+  (Plots, ProgressMeter, FunctionWrappers, OSQP, MatrixEquations, JSON; disk
+  permitting). Reproduce the stored base Tier A+C result ($\nu_A = 0.051$,
+  $\approx 16$\,s) and one Tier B case, and regenerate the missing
+  \texttt{.jld2} baselines needed by Tiers B and F.
+  \emph{Output:} a validated Linux toolchain.
+
+\item[P1. Timing benchmark.] Time one evaluation of each measure (Tier C point,
+  one Tier B multisine run, one Tier F window) at the base plant.
+  \emph{Output:} cost per point, used to size every later grid.
+
+\item[P2. Feasible motion envelope per plant set.] Using the Tier A
+  steady-state solver and open-loop voltage ramps, find for each $\mu$ and
+  $\beta$: the maximum steady $u$ (actuator limit, $v_{\mathrm{nl}}$, back-EMF),
+  the maximum $\nu$, and the acceleration at which the first wheel reaches the
+  friction limit (largest usable $\Pi_a$).
+  \emph{Output:} upper bounds $u_{\max}(\beta,\nu;\mu)$ and $\Pi_{a,\max}$.
+
+\item[P3. One-at-a-time transition scans.] From the base plant, sweep one motion
+  axis at a time on a log grid ($\Pi_a$, $u$, $\nu$, and $V_0$ down to
+  $\sim v_{\mathrm{str}}$ for creep), evaluating the cheap measures (Tier C, a few
+  Tier B amplitudes). Locate where each measure starts to change, including the
+  friction/actuator crossover predicted at $u \approx 1 - 0.47\mu$.
+  \emph{Output:} the region of each axis where the fine grid must be dense.
+
+\item[P4. Similarity (collapse) check.] Run two dimensionally different
+  configurations with identical dimensionless groups (e.g.\ scaled $V_0$, $T$
+  and $\mu$ together, or a geometrically scaled robot) and compare their
+  non-dimensional responses and measures.
+  \emph{Output:} confirmation that the chosen groups are sufficient; if not, the
+  missing group is identified before the main sweep.
+
+\item[P5. Plant-parameter sensitivity.] At three representative motion points
+  (one inside, one near, one beyond the P3 transition) vary each plant/environment
+  constant alone. Drop constants that do not move the measures or the boundary
+  (the existing static scan found COM and $\hat\chi$ mostly shrink feasibility).
+  \emph{Output:} the pruned outer-loop set.
+
+\item[P6. Regularisation sensitivity.] Near stick (creep and reversal classes),
+  vary $\varepsilon_{\mathrm{reg}}$ ($10^{-5}$--$10^{-3}$\,m/s), because the bristle
+  linear-zone threshold is of the same order.
+  \emph{Output:} whether low-speed results are physical or numerical.
+\end{description}
+
+\paragraph{Known modelling caveat (not a separate study).} The roller equation
+appears to use $-M_zC$ where energy consistency requires $+M_zC$. Its size is
+about 5\% of the roller torque balance and the roller is slaved, so it is
+recorded as a limitation; P0 can log the power-balance residual alongside the
+reproduction run at no extra cost.
+
+\section{Main sweep (after the preliminaries)}
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item Outer loop: the pruned plant sets from P5.
+  \item Inner loop: for each $(\pm\nu,\beta)$ over the full circle and waveform class, find the flip
+    boundary along $\Pi_a$ (and along $u$ for the cruise class) by bisection on
+    the Tier F threshold $\hat\gamma = 1$, using the ranges from P2 and P3, instead
+    of a full grid.
+  \item At each boundary point evaluate Tiers B and C to attribute the flip to a
+    mechanism: friction saturation, actuator/back-EMF saturation, stick mode, or
+    geometric coupling.
+  \item Assemble boundary surfaces $\Pi_a^*(u,\nu,\beta\,|\,\text{plant set})$ and
+    the motion-class table (linear sufficient / nonlinear warranted).
+\end{enumerate}
+
+\section{Decisions still open}
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Plant:} voltage-input \texttt{hybrid\_ctrl/plant.jl} (recommended:
+    has the back-EMF limit, the corrected yaw arm, and matches the existing
+    measures) vs.\ torque-input \texttt{run\_one.jl}.
+  \item \textbf{Threads:} the machine has 32 cores and 125\,GB RAM; the repo's
+    $\le 8$-thread rule was written for the Windows laptop.
+  \item \textbf{Linear controller for Tier F:} the archived PID-CT gains were tuned
+    at $\mu = 0.5$; either keep them fixed (tests robustness of one linear design)
+    or retune per $\mu$ (tests whether \emph{any} linear design suffices).
+  \item \textbf{Rubber parameters:} replace the Hertz/Mindlin estimates with
+    measured or cited values before P5.
+  \item \textbf{Result storage:} sweep outputs written under
+    \texttt{NonDimensionalAnalysis/results/} (small summaries only), with raw
+    trajectories kept out of git.
+\end{itemize}
+
+\end{document}
